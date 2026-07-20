@@ -1,0 +1,23 @@
+package com.example.armineordermodule;
+
+public class LoginResult {
+
+    public final String token;
+    public final int expiresInMinutes;
+    public final long expiresAtMillis;
+    public final String authSource;
+    public final String userId;
+    public final String userName;
+    public final String email;
+
+    public LoginResult(String token, int expiresInMinutes, long expiresAtMillis,
+                        String authSource, String userId, String userName, String email) {
+        this.token = token;
+        this.expiresInMinutes = expiresInMinutes;
+        this.expiresAtMillis = expiresAtMillis;
+        this.authSource = authSource;
+        this.userId = userId;
+        this.userName = userName;
+        this.email = email;
+    }
+}

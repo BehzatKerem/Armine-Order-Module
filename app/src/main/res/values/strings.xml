@@ -1,0 +1,35 @@
+<resources>
+    <string name="app_name">Armine Order Module</string>
+    <string name="default_screen_title">Ana Menu</string>
+    <string name="default_screen_subtitle">Giris basarili</string>
+    <string name="main_menu_header">Siparis Modulu</string>
+    <string name="main_menu_subtitle">Menu yakinda eklenecek</string>
+    <string name="menu_products">Urunler</string>
+    <string name="menu_customers">Musteriler</string>
+    <string name="menu_warehouses">Depolarim</string>
+    <string name="menu_wholesale_order">Toptan Siparis</string>
+    <string name="menu_coming_soon">Yakinda eklenecek</string>
+
+    <string name="login_subtitle">Siparis ve depo islemleri</string>
+    <string name="login_username">Kullanici adi</string>
+    <string name="login_password">Sifre</string>
+    <string name="login_button">Giris</string>
+    <string name="login_username_required">Kullanici adi gerekli</string>
+    <string name="login_password_required">Sifre gerekli</string>
+    <string name="login_failed">Giris basarisiz. Bilgilerinizi kontrol edin.</string>
+    <string name="login_loading">Giris yapiliyor…</string>
+    <string name="server_url_missing">Once server ayarlarindan bir sunucu adresi girin.</string>
+
+    <string name="server_settings_title">Server Ayarlari</string>
+    <string name="server_url">Server URL</string>
+    <string name="server_save">Kaydet</string>
+    <string name="server_url_required">Server URL gerekli</string>
+    <string name="server_url_saved">Server URL kaydedildi</string>
+
+    <string name="profile_button">Profil</string>
+    <string name="profile_title">Profil</string>
+    <string name="back_button">Geri</string>
+    <string name="profile_username_label">Kullanici adi</string>
+    <string name="profile_email_label">E-posta</string>
+    <string name="profile_logout">Cikis Yap</string>
+</resources>
