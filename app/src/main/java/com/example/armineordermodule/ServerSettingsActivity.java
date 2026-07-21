@@ -41,7 +41,14 @@ public class ServerSettingsActivity extends AppCompatActivity {
             return;
         }
 
-        ServerPreferences.saveServerUrl(this, serverUrl);
+        if (!ServerPreferences.isValidServerUrl(serverUrl)) {
+            tilServerUrl.setError(getString(R.string.server_url_invalid));
+            return;
+        }
+
+        String normalized = ServerPreferences.normalizeForStorage(serverUrl);
+        ServerPreferences.saveServerUrl(this, normalized);
+        etServerUrl.setText(normalized);
         Toast.makeText(this, R.string.server_url_saved, Toast.LENGTH_SHORT).show();
         finish();
     }

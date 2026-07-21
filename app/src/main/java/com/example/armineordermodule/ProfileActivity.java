@@ -20,18 +20,22 @@ public class ProfileActivity extends AppCompatActivity {
         ImageButton btnBack = findViewById(R.id.btnBack);
         TextView tvUsername = findViewById(R.id.tvProfileUsername);
         TextView tvEmail = findViewById(R.id.tvProfileEmail);
+        TextView tvDatabase = findViewById(R.id.tvProfileDatabase);
         MaterialButton btnLogout = findViewById(R.id.btnLogout);
 
         String username = AuthPreferences.getUserName(this);
         String email = AuthPreferences.getEmail(this);
+        String database = AuthPreferences.getDefaultDatabase(this);
 
         tvUsername.setText(TextUtils.isEmpty(username) ? "-" : username);
         tvEmail.setText(TextUtils.isEmpty(email) ? "-" : email);
+        tvDatabase.setText(TextUtils.isEmpty(database) ? "-" : database);
 
         btnBack.setOnClickListener(v -> finish());
 
         btnLogout.setOnClickListener(v -> {
             AuthPreferences.clearSession(this);
+            WarehousePreferences.clear(this);
             Intent intent = new Intent(this, LoginActivity.class);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(intent);

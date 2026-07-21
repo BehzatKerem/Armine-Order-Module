@@ -55,6 +55,9 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void showSavedServerUrl() {
+        if (tvServerUrl == null) {
+            return;
+        }
         String serverUrl = ServerPreferences.getServerUrl(this);
         if (TextUtils.isEmpty(serverUrl)) {
             tvServerUrl.setText("");

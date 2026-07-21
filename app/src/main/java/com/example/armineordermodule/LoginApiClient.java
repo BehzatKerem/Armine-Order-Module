@@ -13,12 +13,10 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
-import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
@@ -27,12 +25,6 @@ public final class LoginApiClient {
 
     private static final String LOGIN_PATH = "/api/FrogMobileHandheld/Login";
     private static final MediaType JSON_MEDIA_TYPE = MediaType.get("application/json; charset=utf-8");
-
-    private static final OkHttpClient CLIENT = new OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.SECONDS)
-            .build();
 
     private LoginApiClient() {
     }
@@ -46,14 +38,6 @@ public final class LoginApiClient {
     public static void login(String serverUrl, String username, String password, LoginCallback callback) {
         Handler mainHandler = new Handler(Looper.getMainLooper());
 
-        String url;
-        try {
-            url = buildLoginUrl(serverUrl);
-        } catch (Exception e) {
-            mainHandler.post(() -> callback.onError("Sunucu adresi gecersiz."));
-            return;
-        }
-
         JSONObject requestJson = new JSONObject();
         try {
             requestJson.put("userName", username);
@@ -63,14 +47,21 @@ public final class LoginApiClient {
             return;
         }
 
-        RequestBody body = RequestBody.create(requestJson.toString(), JSON_MEDIA_TYPE);
-        Request request = new Request.Builder()
-                .url(url)
-                .post(body)
-                .addHeader("Content-Type", "application/json")
-                .build();
+        Request request;
+        try {
+            String url = buildLoginUrl(serverUrl);
+            RequestBody body = RequestBody.create(requestJson.toString(), JSON_MEDIA_TYPE);
+            request = new Request.Builder()
+                    .url(url)
+                    .post(body)
+                    .addHeader("Content-Type", "application/json")
+                    .build();
+        } catch (Exception e) {
+            mainHandler.post(() -> callback.onError("Sunucu adresi gecersiz."));
+            return;
+        }
 
-        CLIENT.newCall(request).enqueue(new Callback() {
+        ApiHttpClient.get().newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
                 mainHandler.post(() -> callback.onError(
@@ -102,11 +93,11 @@ public final class LoginApiClient {
     }
 
     private static String buildLoginUrl(String serverUrl) {
-        String trimmed = serverUrl.trim();
-        while (trimmed.endsWith("/")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        String base = ServerPreferences.normalizeServerForAndroidClient(serverUrl);
+        if (TextUtils.isEmpty(base)) {
+            throw new IllegalArgumentException("Empty server url");
         }
-        return trimmed + LOGIN_PATH;
+        return base + LOGIN_PATH;
     }
 
     private static ParsedResponse parseResponse(int httpCode, String body) {
@@ -144,6 +135,7 @@ public final class LoginApiClient {
                 String userId = user != null ? user.optString("id", "") : "";
                 String userName = user != null ? user.optString("userName", "") : "";
                 String email = user != null ? user.optString("email", "") : "";
+                String defaultDatabase = user != null ? user.optString("defaultDatabase", "") : "";
 
                 if (TextUtils.isEmpty(token)) {
                     parsed.success = false;
@@ -153,7 +145,7 @@ public final class LoginApiClient {
 
                 long expiresAtMillis = parseExpiresAt(expiresAt, expiresInMinutes);
                 parsed.result = new LoginResult(token, expiresInMinutes, expiresAtMillis,
-                        authSource, userId, userName, email);
+                        authSource, userId, userName, email, defaultDatabase);
             }
         } catch (JSONException e) {
             parsed.success = false;

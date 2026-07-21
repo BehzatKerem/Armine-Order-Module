@@ -22,8 +22,10 @@
 
     <string name="server_settings_title">Server Ayarlari</string>
     <string name="server_url">Server URL</string>
+    <string name="server_url_help">Format: http(s)://host:port\nEmulatorde localhost otomatik 10.0.2.2 olur.\nGercek cihazda PC\'nin LAN IP adresini kullanin.</string>
     <string name="server_save">Kaydet</string>
     <string name="server_url_required">Server URL gerekli</string>
+    <string name="server_url_invalid">Gecerli adres girin: http(s)://host:port</string>
     <string name="server_url_saved">Server URL kaydedildi</string>
 
     <string name="profile_button">Profil</string>
@@ -31,5 +33,17 @@
     <string name="back_button">Geri</string>
     <string name="profile_username_label">Kullanici adi</string>
     <string name="profile_email_label">E-posta</string>
+    <string name="profile_database_label">Varsayilan veritabani</string>
     <string name="profile_logout">Cikis Yap</string>
+
+    <string name="warehouses_title">Depolarim</string>
+    <string name="warehouses_update_defaults">Varsayilan Depolari Guncelle</string>
+    <string name="warehouses_updating">Depolar guncelleniyor…</string>
+    <string name="warehouses_update_success">Depolar guncellendi</string>
+    <string name="warehouses_empty_hint">Henuz kayitli depo yok. Guncelle butonuna basin.</string>
+    <string name="warehouses_cached_count">Kayitli depo: %1$d</string>
+    <string name="warehouses_updated_count">%1$d depo guncellendi</string>
+    <string name="warehouses_default_badge">Varsayilan</string>
+    <string name="warehouses_session_required">Oturum gecersiz. Tekrar giris yapin.</string>
+    <string name="warehouses_database_missing">Varsayilan veritabani bilgisi eksik. Tekrar giris yapin.</string>
 </resources>

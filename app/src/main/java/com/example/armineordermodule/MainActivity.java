@@ -34,7 +34,8 @@ public class MainActivity extends AppCompatActivity {
 
         btnProducts.setOnClickListener(v -> showComingSoon());
         btnCustomers.setOnClickListener(v -> showComingSoon());
-        btnWarehouses.setOnClickListener(v -> showComingSoon());
+        btnWarehouses.setOnClickListener(v ->
+                startActivity(new Intent(this, WarehousesActivity.class)));
         btnWholesaleOrder.setOnClickListener(v -> showComingSoon());
     }
 

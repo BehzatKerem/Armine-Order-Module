@@ -76,6 +76,22 @@
             android:textColor="@color/login_title"
             android:textSize="17sp" />
 
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/profile_database_label"
+            android:textColor="@color/login_subtitle"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tvProfileDatabase"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/login_title"
+            android:textSize="17sp" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnLogout"
             android:layout_width="match_parent"
