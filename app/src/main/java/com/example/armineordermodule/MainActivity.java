@@ -2,16 +2,38 @@ package com.example.armineordermodule;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.ImageButton;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.example.armineordermodule.rfid.RfidConnectionManager;
+import com.example.armineordermodule.rfid.RfidScanActivity;
 import com.google.android.material.button.MaterialButton;
 
+import kotlin.Unit;
+
 public class MainActivity extends AppCompatActivity {
+
+    /** RFID baglantisi arka planda (baska ekrandan) degisirse ekranda yansitmak icin. */
+    private static final long RFID_STATUS_POLL_INTERVAL_MS = 2000L;
+
+    private final Handler statusHandler = new Handler(Looper.getMainLooper());
+    private final Runnable statusPoller = new Runnable() {
+        @Override
+        public void run() {
+            refreshRfidStatusUi();
+            statusHandler.postDelayed(this, RFID_STATUS_POLL_INTERVAL_MS);
+        }
+    };
+
+    private View dotRfidStatus;
+    private TextView tvRfidStatus;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -23,6 +45,10 @@ public class MainActivity extends AppCompatActivity {
         MaterialButton btnCustomers = findViewById(R.id.btnCustomers);
         MaterialButton btnWarehouses = findViewById(R.id.btnWarehouses);
         MaterialButton btnWholesaleOrder = findViewById(R.id.btnWholesaleOrder);
+        MaterialButton btnInventory = findViewById(R.id.btnInventory);
+        MaterialButton btnRfidScan = findViewById(R.id.btnRfidScan);
+        dotRfidStatus = findViewById(R.id.dotRfidStatus);
+        tvRfidStatus = findViewById(R.id.tvRfidStatus);
 
         btnProfile.setOnClickListener(v ->
                 startActivity(new Intent(this, ProfileActivity.class)));
@@ -31,12 +57,55 @@ public class MainActivity extends AppCompatActivity {
         setupPressableMenuButton(btnCustomers);
         setupPressableMenuButton(btnWarehouses);
         setupPressableMenuButton(btnWholesaleOrder);
+        setupPressableMenuButton(btnInventory);
+        setupPressableMenuButton(btnRfidScan);
 
         btnProducts.setOnClickListener(v -> showComingSoon());
-        btnCustomers.setOnClickListener(v -> showComingSoon());
+        btnCustomers.setOnClickListener(v ->
+                startActivity(new Intent(this, CustomersActivity.class)));
         btnWarehouses.setOnClickListener(v ->
                 startActivity(new Intent(this, WarehousesActivity.class)));
-        btnWholesaleOrder.setOnClickListener(v -> showComingSoon());
+        btnWholesaleOrder.setOnClickListener(v ->
+                startActivity(new Intent(this, WholesaleOrderListActivity.class)));
+        btnInventory.setOnClickListener(v ->
+                startActivity(new Intent(this, InventoryListActivity.class)));
+        btnRfidScan.setOnClickListener(v ->
+                startActivity(new Intent(this, RfidScanActivity.class)));
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshRfidStatusUi();
+        maybeAutoReconnectRfid();
+        statusHandler.post(statusPoller);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        statusHandler.removeCallbacks(statusPoller);
+    }
+
+    /**
+     * Uygulama yeniden acildiginda, cikis yapip tekrar giris yapildiginda ya da bu ekrana
+     * baska bir yerden geri donuldugunde RFID anahtari acik olmasina ragmen baglanti
+     * kopmus olabilir (bkz. ArmineApplication - Application.onCreate() sadece process
+     * basina bir kez calisir). Bu yuzden ekran her on plana geldiginde kontrol edilir.
+     */
+    private void maybeAutoReconnectRfid() {
+        if (RfidPreferences.isRfidEnabled(this) && !RfidConnectionManager.isConnected()) {
+            RfidConnectionManager.autoReconnectIfNeededAsync(getApplicationContext(), result -> {
+                refreshRfidStatusUi();
+                return Unit.INSTANCE;
+            });
+        }
+    }
+
+    private void refreshRfidStatusUi() {
+        boolean connected = RfidConnectionManager.isConnected();
+        dotRfidStatus.setBackgroundResource(connected ? R.drawable.bg_dot_green : R.drawable.bg_dot_red);
+        tvRfidStatus.setText(connected ? R.string.main_rfid_status_connected : R.string.main_rfid_status_disconnected);
     }
 
     private void setupPressableMenuButton(View button) {

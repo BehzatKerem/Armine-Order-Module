@@ -95,5 +95,70 @@
                 android:text="@string/menu_wholesale_order"
                 app:icon="@drawable/ic_menu_order" />
         </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnInventory"
+                style="@style/Widget.Armine.MenuButton"
+                android:layout_width="0dp"
+                android:layout_height="140dp"
+                android:layout_marginEnd="8dp"
+                android:layout_weight="1"
+                android:text="@string/menu_inventory"
+                app:icon="@drawable/ic_menu_inventory" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="140dp"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRfidScan"
+            style="@style/Widget.Armine.MenuButton"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:layout_marginTop="16dp"
+            android:text="@string/menu_rfid_scan"
+            app:icon="@drawable/ic_menu_rfid"
+            app:iconGravity="textStart"
+            app:iconPadding="10dp"
+            app:iconSize="24dp" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical|start"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="14dp">
+
+        <View
+            android:id="@+id/dotRfidStatus"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/bg_dot_red" />
+
+        <TextView
+            android:id="@+id/tvRfidStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/main_rfid_status_disconnected"
+            android:textColor="@color/login_subtitle"
+            android:textSize="13sp" />
     </LinearLayout>
 </LinearLayout>

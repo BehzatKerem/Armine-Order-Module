@@ -136,6 +136,7 @@ public final class LoginApiClient {
                 String userName = user != null ? user.optString("userName", "") : "";
                 String email = user != null ? user.optString("email", "") : "";
                 String defaultDatabase = user != null ? user.optString("defaultDatabase", "") : "";
+                String companyCode = user != null ? user.optString("companyCode", "") : "";
 
                 if (TextUtils.isEmpty(token)) {
                     parsed.success = false;
@@ -145,7 +146,7 @@ public final class LoginApiClient {
 
                 long expiresAtMillis = parseExpiresAt(expiresAt, expiresInMinutes);
                 parsed.result = new LoginResult(token, expiresInMinutes, expiresAtMillis,
-                        authSource, userId, userName, email, defaultDatabase);
+                        authSource, userId, userName, email, defaultDatabase, companyCode);
             }
         } catch (JSONException e) {
             parsed.success = false;

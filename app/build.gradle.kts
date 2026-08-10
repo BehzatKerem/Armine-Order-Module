@@ -1,4 +1,5 @@
 plugins {
+    // AGP 9+ built-in Kotlin: org.jetbrains.kotlin.android plugin'i ayrı uygulanmaz.
     alias(libs.plugins.android.application)
 }
 
@@ -21,6 +22,9 @@ android {
 
     buildTypes {
         release {
+            // Fiziksel el terminaline kurulum için debug anahtarıyla imzala.
+            // Play Store / kurumsal dağıtımdan önce gerçek keystore ile değiştirilmeli.
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -29,8 +33,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     buildFeatures {
@@ -38,7 +42,12 @@ android {
     }
 }
 
+kotlin {
+    jvmToolchain(21)
+}
+
 dependencies {
+    implementation(files("libs/lcrrgxmodule-release.aar"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)

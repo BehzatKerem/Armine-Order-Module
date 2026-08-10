@@ -13,6 +13,7 @@
     <color name="login_title">#FF1A1A1A</color>
     <color name="login_subtitle">#FF6B7280</color>
     <color name="login_error">#FFB00020</color>
+    <color name="rfid_status_connected">#FF2E7D32</color>
 
     <color name="menu_card_stroke">#FFE8ECF1</color>
     <color name="menu_icon_bg_products">#FF1E3A5F</color>

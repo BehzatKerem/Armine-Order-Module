@@ -10,10 +10,11 @@ public class LoginResult {
     public final String userName;
     public final String email;
     public final String defaultDatabase;
+    public final String companyCode;
 
     public LoginResult(String token, int expiresInMinutes, long expiresAtMillis,
                         String authSource, String userId, String userName, String email,
-                        String defaultDatabase) {
+                        String defaultDatabase, String companyCode) {
         this.token = token;
         this.expiresInMinutes = expiresInMinutes;
         this.expiresAtMillis = expiresAtMillis;
@@ -22,5 +23,6 @@ public class LoginResult {
         this.userName = userName;
         this.email = email;
         this.defaultDatabase = defaultDatabase;
+        this.companyCode = companyCode;
     }
 }

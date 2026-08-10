@@ -8,6 +8,7 @@ import android.widget.TextView;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.example.armineordermodule.rfid.RfidConnectionManager;
 import com.google.android.material.button.MaterialButton;
 
 public class ProfileActivity extends AppCompatActivity {
@@ -34,6 +35,12 @@ public class ProfileActivity extends AppCompatActivity {
         btnBack.setOnClickListener(v -> finish());
 
         btnLogout.setOnClickListener(v -> {
+            // Cikis yapan kullanicinin RFID okuyucuyu acik birakmamasi icin baglanti kesilir.
+            // Bkz. RfidConnectionManager - uygulama genelinde tek paylasilan baglanti.
+            if (RfidConnectionManager.isConnected()) {
+                RfidConnectionManager.disconnectAsync();
+            }
+
             AuthPreferences.clearSession(this);
             WarehousePreferences.clear(this);
             Intent intent = new Intent(this, LoginActivity.class);

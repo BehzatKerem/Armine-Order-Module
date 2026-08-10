@@ -14,6 +14,7 @@ public final class AuthPreferences {
     private static final String KEY_EMAIL = "email";
     private static final String KEY_AUTH_SOURCE = "auth_source";
     private static final String KEY_DEFAULT_DATABASE = "default_database";
+    private static final String KEY_COMPANY_CODE = "company_code";
 
     private AuthPreferences() {
     }
@@ -27,6 +28,7 @@ public final class AuthPreferences {
                 .putString(KEY_EMAIL, result.email)
                 .putString(KEY_AUTH_SOURCE, result.authSource)
                 .putString(KEY_DEFAULT_DATABASE, result.defaultDatabase)
+                .putString(KEY_COMPANY_CODE, result.companyCode)
                 .apply();
     }
 
@@ -50,6 +52,10 @@ public final class AuthPreferences {
 
     public static String getDefaultDatabase(Context context) {
         return prefs(context).getString(KEY_DEFAULT_DATABASE, "");
+    }
+
+    public static String getCompanyCode(Context context) {
+        return prefs(context).getString(KEY_COMPANY_CODE, "");
     }
 
     public static void clearSession(Context context) {
