@@ -1,13 +1,12 @@
 # Toptan Sipariş Modülü
 
-**Durum:** Taslak — akış ve JSON formatı belirlendi, ekranlar geliştiriliyor.
+**Durum:** Okutma + özet UX uygulandı. Özet enrich endpoint bağlandı. Sipariş gönderim endpoint’i bekleniyor.
 
 ---
 
 ## 1. Sipariş Gönderim JSON Formatı
 
-Bu format `Kaydet ve Gönder` aksiyonunda API'ye gönderilecek gövdedir
-(endpoint henüz belirlenmedi).
+`Kaydet ve Gönder` aksiyonunda API’ye gönderilecek gövde (endpoint henüz yok; lokal `PENDING_SEND`).
 
 ```json
 {
@@ -20,15 +19,9 @@ Bu format `Kaydet ve Gönder` aksiyonunda API'ye gönderilecek gövdedir
   "IsCompleted": true,
   "IsReturn": false,
   "Description": "Açiklama",
-  "Lines": [
-    {
-      "Barcode": "8680123456789",
-      "Qty1": 2,
-      "Epcs": [
-        "8680123456789ABCD0001",
-        "8680123456789ABCD0002"
-      ]
-    }
+  "Epcs": [
+    "8680123456789ABCD0001",
+    "8680123456789ABCD0002"
   ]
 }
 ```
@@ -38,47 +31,68 @@ Bu format `Kaydet ve Gönder` aksiyonunda API'ye gönderilecek gövdedir
 | Alan | Tip | Açıklama |
 |------|-----|----------|
 | `ModelType` | int | Sabit değer: `5` |
-| `CustomerCode` | string | Seçilen müşterinin cari kodu (`CustomerItem.currAccCode`) |
-| `CompanyCode` | string | Girişte alınan şirket kodu (`AuthPreferences.getCompanyCode()`) |
-| `OfficeCode` | string | Seçilen deponun ofis kodu (`WarehouseItem.officeCode`) |
-| `WareHouseCode` | string | Seçilen depo kodu (`WarehouseItem.warehouseCode`) |
+| `CustomerCode` | string | Seçilen müşterinin cari kodu |
+| `CompanyCode` | string | Girişte alınan şirket kodu |
+| `OfficeCode` | string | Seçilen deponun ofis kodu |
+| `WareHouseCode` | string | Seçilen depo kodu |
 | `OrderDate` | string (`yyyy-MM-dd`) | Bugünün tarihi |
 | `IsCompleted` | bool | Varsayılan `true` |
 | `IsReturn` | bool | Satış olduğu için her zaman `false` |
-| `Description` | string | Serbest metin; öneri: `"{kullanıcı adı} - {müşteri unvanı}"` |
-| `Lines[].Barcode` | string | Okutulan / girilen barkod (EPC’nin ilk 13 hanesi) |
-| `Lines[].Qty1` | number | Miktar |
-| `Lines[].Epcs` | string[] | Bu satıra ait okutulmuş EPC listesi |
+| `Description` | string | Serbest metin |
+| `Epcs` | string[] | Benzersiz ham EPC listesi (miktar / ItemCode yok) |
 
-**EPC kuralları:** Aynı EPC bir siparişte okutulduysa diğer taslak / aktarılmamış fişlerde tekrar kabul edilmez; cihaz yüksek sesli uyarı verir. Satırdan / fişten silinince serbest kalır.
+**Not:** `ItemCode`, ürün adı, renk yalnızca özet ekranı içindir; gönderime dahil edilmez.
+
+**EPC kuralları:** Aynı EPC bir siparişte okutulduysa diğer taslak / aktarılmamış fişlerde tekrar kabul edilmez. İptal Barkod ile silinince serbest kalır.
+
+---
+
+## 1b. Ürün / stok enrich (özet ekranı)
+
+`POST /api/FrogMobileHandheldWholesaleOrder/WholeSaleSummaryCheckInfo`  
+FrogMobile JWT (`Authorization: Bearer`) gerekir.
+
+İstek:
+
+```json
+{
+  "OfficeCode": "M01",
+  "WareHouseCode": "M01",
+  "UserName": "KULLANICI_ADI",
+  "Database": "DatabaseName",
+  "Barcodes": ["8680123456789", "8680123456790"]
+}
+```
+
+- `Barcodes`: EPC’nin ilk 13 hanesi, benzersiz liste.
+- `UserName`: `AuthPreferences.getUserName()`
+- `Database`: `AuthPreferences.getDefaultDatabase()` (sorgu bu veritabanında çalışır)
+- Yanıt: `Data.Items[]` — `Barcode`, `ProductDescription` (`cdItemDesc` / TR), `ItemCode`, `ColorCode`, `ColorDescription`, `Stock` (`AvailableInventoryQty1` toplamı)
+- Adet yerel EPC sayısından gelir; gönderime dahil edilmez.
+
+Stok yok / yetersiz / bulunamadı → özet ekranında uyarı. Şimdilik listeden silme yok.
 
 ---
 
 ## 2. Ekran Akışı
 
-1. **Toptan Sipariş** menüsüne girilir → aktarılmamış / taslak fiş listesi.
-2. **+** ile yeni sipariş: **Müşteri arama** ekranı (`CustomerApiClient.search`).
-3. Müşteri seçilir → **Depo seçimi** ekranı (`WholesaleOrderSetupActivity`):
-   - `WarehousePreferences` içindeki senkronize depolar listelenir (yeniden API yok).
-   - Varsayılan depo ön-seçili gelir.
-   - Altında **açıklama** alanı (varsayılan: `{kullanıcı} - {müşteri}`).
-4. **Ürün okutmaya geç** → okutma ekranı (`WholesaleOrderActivity`):
-   - Depo / açıklama gösterilmez (ekran ürün listesine ayrılır).
-   - RFID tetik veya manuel satır ekleme.
-5. Sağ altta kalem FAB → **Kaydet** / **Kaydet ve Gönder**.
-   - **Kaydet**: lokal `DRAFT`, *"Aktarılmamış Fişiniz Bulunmaktadır"*.
-   - **Kaydet ve Gönder**: JSON üretilir, lokal `PENDING_SEND` (API endpoint bekleniyor).
+1. **Toptan Sipariş** → aktarılmamış / taslak fiş listesi.
+2. **+** → müşteri arama → **Depo seçimi** (`WholesaleOrderSetupActivity`).
+3. **Ürün okutmaya geç** → `WholesaleOrderActivity`:
+   - Ham EPC listesi + İptal Barkod.
+   - **Özete Geç** (Kaydet burada yok).
+   - Okutulmuş EPC varken geri çıkışta kaydetmeden çıkma uyarısı.
+4. **Sipariş Özeti** (`WholesaleOrderSummaryActivity`):
+   - Barkod gruplu ürün / renk / stok / adet.
+   - Stok uyarısı (silme yok).
+   - FAB: **Kaydet** / **Kaydet ve Gönder**.
+5. Geri: özetten okutmaya dönüş.
 
-Mevcut taslak fişe dokunulunca doğrudan okutma ekranı açılır (depo/açıklama zaten kayıtlıdır).
+Taslak fişe dokunulunca doğrudan okutma ekranı açılır.
 
 ---
 
 ## 3. Açık Noktalar
 
-- Barkod girişi donanımsal olarak nasıl yapılacak (klavye-wedge / manuel / RFID)?
-- Aynı barkod tekrar okutulursa: mevcut satırın miktarı mı artırılacak, yeni satır mı eklenecek?
-- Taslak siparişler tekil mi (tek aktif taslak) yoksa liste halinde mi (birden fazla bekleyen fiş) tutulacak?
-- `Kaydet ve Gönder` endpoint'i netleşene kadar bu buton ne yapmalı (sadece JSON oluşturup yerelde
-  "gönderim bekliyor" işaretlemeli mi)?
-
-Bu sorulara verilen yanıtlar bu dokümana ve ilgili koda yansıtılacaktır.
+- Sipariş gönderim endpoint’i
+- Stok hatalı ürünler için “listeden sil / yine de gönder” UX (sonraya bırakıldı)

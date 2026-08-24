@@ -46,6 +46,7 @@ public class MainActivity extends AppCompatActivity {
         MaterialButton btnWarehouses = findViewById(R.id.btnWarehouses);
         MaterialButton btnWholesaleOrder = findViewById(R.id.btnWholesaleOrder);
         MaterialButton btnInventory = findViewById(R.id.btnInventory);
+        MaterialButton btnRfidCounting = findViewById(R.id.btnRfidCounting);
         MaterialButton btnRfidScan = findViewById(R.id.btnRfidScan);
         dotRfidStatus = findViewById(R.id.dotRfidStatus);
         tvRfidStatus = findViewById(R.id.tvRfidStatus);
@@ -58,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
         setupPressableMenuButton(btnWarehouses);
         setupPressableMenuButton(btnWholesaleOrder);
         setupPressableMenuButton(btnInventory);
+        setupPressableMenuButton(btnRfidCounting);
         setupPressableMenuButton(btnRfidScan);
 
         btnProducts.setOnClickListener(v -> showComingSoon());
@@ -69,6 +71,8 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(new Intent(this, WholesaleOrderListActivity.class)));
         btnInventory.setOnClickListener(v ->
                 startActivity(new Intent(this, InventoryListActivity.class)));
+        btnRfidCounting.setOnClickListener(v ->
+                startActivity(new Intent(this, RfidHandheldCountingStartActivity.class)));
         btnRfidScan.setOnClickListener(v ->
                 startActivity(new Intent(this, RfidScanActivity.class)));
     }

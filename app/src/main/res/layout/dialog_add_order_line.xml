@@ -16,8 +16,6 @@
         android:layout_height="wrap_content"
         android:hint="@string/wholesale_order_manual_epc_hint"
         app:boxStrokeColor="@color/login_primary"
-        app:counterEnabled="true"
-        app:counterMaxLength="24"
         app:hintTextColor="@color/login_primary">
 
         <com.google.android.material.textfield.TextInputEditText
@@ -25,7 +23,6 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:inputType="textVisiblePassword|textNoSuggestions"
-            android:maxLength="24"
             android:maxLines="1" />
     </com.google.android.material.textfield.TextInputLayout>
 

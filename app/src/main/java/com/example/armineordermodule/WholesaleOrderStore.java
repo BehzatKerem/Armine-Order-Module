@@ -110,7 +110,7 @@ public final class WholesaleOrderStore {
                 continue;
             }
             for (WholesaleOrderLine line : order.lines) {
-                if (line.epcs.contains(epc)) {
+                if (epc.equals(line.barcode) || line.epcs.contains(epc)) {
                     return order;
                 }
             }

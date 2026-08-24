@@ -112,11 +112,15 @@
                 android:text="@string/menu_inventory"
                 app:icon="@drawable/ic_menu_inventory" />
 
-            <View
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRfidCounting"
+                style="@style/Widget.Armine.MenuButton"
                 android:layout_width="0dp"
                 android:layout_height="140dp"
                 android:layout_marginStart="8dp"
-                android:layout_weight="1" />
+                android:layout_weight="1"
+                android:text="@string/menu_rfid_counting"
+                app:icon="@drawable/ic_menu_rfid" />
         </LinearLayout>
 
         <com.google.android.material.button.MaterialButton

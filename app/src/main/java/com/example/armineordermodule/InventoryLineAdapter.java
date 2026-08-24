@@ -37,7 +37,7 @@ public class InventoryLineAdapter extends RecyclerView.Adapter<InventoryLineAdap
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View view = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_wholesale_order_line, parent, false);
+                .inflate(R.layout.item_inventory_line, parent, false);
         return new ViewHolder(view);
     }
 

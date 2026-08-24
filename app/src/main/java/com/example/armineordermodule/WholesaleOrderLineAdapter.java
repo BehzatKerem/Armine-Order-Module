@@ -3,7 +3,6 @@ package com.example.armineordermodule;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ImageButton;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
@@ -14,16 +13,7 @@ import java.util.List;
 
 public class WholesaleOrderLineAdapter extends RecyclerView.Adapter<WholesaleOrderLineAdapter.ViewHolder> {
 
-    public interface OnLineDeleteRequestListener {
-        void onLineDeleteRequest(WholesaleOrderLine line);
-    }
-
     private final List<WholesaleOrderLine> items = new ArrayList<>();
-    private final OnLineDeleteRequestListener listener;
-
-    public WholesaleOrderLineAdapter(OnLineDeleteRequestListener listener) {
-        this.listener = listener;
-    }
 
     public void submitList(List<WholesaleOrderLine> lines) {
         items.clear();
@@ -43,14 +33,7 @@ public class WholesaleOrderLineAdapter extends RecyclerView.Adapter<WholesaleOrd
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        WholesaleOrderLine line = items.get(position);
-        holder.bind(line);
-        holder.btnRemove.setOnClickListener(v -> {
-            int adapterPosition = holder.getBindingAdapterPosition();
-            if (adapterPosition != RecyclerView.NO_POSITION && listener != null) {
-                listener.onLineDeleteRequest(items.get(adapterPosition));
-            }
-        });
+        holder.bind(items.get(position));
     }
 
     @Override
@@ -60,19 +43,15 @@ public class WholesaleOrderLineAdapter extends RecyclerView.Adapter<WholesaleOrd
 
     static class ViewHolder extends RecyclerView.ViewHolder {
         private final TextView tvBarcode;
-        private final TextView tvQty;
-        private final ImageButton btnRemove;
 
         ViewHolder(@NonNull View itemView) {
             super(itemView);
             tvBarcode = itemView.findViewById(R.id.tvLineBarcode);
-            tvQty = itemView.findViewById(R.id.tvLineQty);
-            btnRemove = itemView.findViewById(R.id.btnRemoveLine);
         }
 
         void bind(WholesaleOrderLine line) {
+            // Satir kimligi artik barkod degil; ham EPC gosterilir.
             tvBarcode.setText(line.barcode);
-            tvQty.setText(itemView.getContext().getString(R.string.wholesale_order_line_qty, line.qty));
         }
     }
 }

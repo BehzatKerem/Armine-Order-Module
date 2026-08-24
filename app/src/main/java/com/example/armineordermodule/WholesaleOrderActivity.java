@@ -6,8 +6,6 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
-import android.view.WindowManager;
-import android.view.inputmethod.EditorInfo;
 import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -22,16 +20,16 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.textfield.TextInputEditText;
 
-import org.json.JSONException;
-import org.json.JSONObject;
+import android.content.Intent;
+
+import androidx.activity.OnBackPressedCallback;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 
 import kotlin.Unit;
@@ -39,8 +37,7 @@ import kotlin.Unit;
 /**
  * Toptan siparis urun okutma ekrani (akisin 3. adimi).
  * Depo + aciklama onceki adimda ({@link WholesaleOrderSetupActivity}) secilir;
- * bu ekranda yalnizca RFID / manuel satır ekleme ve kaydet islemleri vardir.
- * Bkz. docs/TOPTAN_SIPARIS.md.
+ * bu ekranda yalnizca ham EPC okutma (parse / miktar yok) ve kaydet islemleri vardir.
  */
 public class WholesaleOrderActivity extends AppCompatActivity {
 
@@ -51,7 +48,6 @@ public class WholesaleOrderActivity extends AppCompatActivity {
     public static final String EXTRA_WAREHOUSE_DESCRIPTION = "extra_warehouse_description";
     public static final String EXTRA_DESCRIPTION = "extra_description";
 
-    private static final String TAG = "WholesaleOrderActivity";
     private static final String TRIGGER_LOG_TAG = "RFID_TRIGGER_KEY";
     private static final Set<Integer> TRIGGER_KEY_CODES =
             new LinkedHashSet<>(Arrays.asList(305, 619, 621));
@@ -70,24 +66,22 @@ public class WholesaleOrderActivity extends AppCompatActivity {
     private TextView tvOrderError;
     private TextView tvTotalTagCount;
     private FloatingActionButton fabOrderActions;
-    private View rowSave;
-    private View rowSaveAndSend;
+    private View rowCancelBarcode;
 
     private final Object scanLock = new Object();
-    /** Siparise kabul edilmis tum EPC'ler (tekrar okunamaz; satir silinince serbest kalir). */
+    /** Siparise kabul edilmis tum EPC'ler (tekrar okunamaz; silinince serbest kalir). */
     private final Set<String> acceptedEpcs = new HashSet<>();
-    /** Barkod -> o satira ait EPC'ler (silmede serbest birakmak icin). */
-    private final Map<String, Set<String>> epcsByBarcode = new HashMap<>();
     private boolean isScanning = false;
     private boolean fabExpanded = false;
     private long lastDuplicateWarningAtMs = 0L;
 
-    /** Silme diyaloğu açıkken RFID okuması ürüne eklemek yerine silme onayı için kullanılır. */
-    private boolean deleteScanMode = false;
-    private String deleteTargetBarcode = "";
-    private AlertDialog deleteScanDialog;
-    private TextView tvDeleteScanStatus;
-    private TextInputEditText etDeleteEpc;
+    /** Iptal Barkod diyaloğu açıkken RFID okuması ana listeye eklemek yerine pending'e gider. */
+    private boolean cancelScanMode = false;
+    private AlertDialog cancelScanDialog;
+    private TextView tvCancelEpcStatus;
+    private TextView tvCancelEpcEmpty;
+    private RfidHandheldCountingEpcAdapter cancelEpcAdapter;
+    private final LinkedHashSet<String> pendingCancelEpcs = new LinkedHashSet<>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -105,6 +99,13 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         renderOrder();
         updateRfidUi();
         updateTotalTagCountUi();
+
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                requestLeaveScanScreen();
+            }
+        });
     }
 
     @Override
@@ -121,6 +122,7 @@ public class WholesaleOrderActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        dismissCancelScanDialog(false);
         if (isScanning) {
             RfidConnectionManager.stopInventoryAsync(null);
         }
@@ -128,17 +130,17 @@ public class WholesaleOrderActivity extends AppCompatActivity {
     }
 
     // --- Fiziksel tetik tusu ---
-    // RFID Tarama (Test) ekraniyla (RfidScanActivity) ayni mantik: bkz.
-    // docs/RFID_SDK_ENTEGRASYON.md Bolum 6. Iki mod (Sunucu Ayarlari > "Tetik Bas-Cek"):
-    // - Toggle (varsayilan): her basis taramayi ac/kapa yapar.
-    // - Bas-Cek / momentary: tus basili tutulunca taramaya baslar, birakinca durdurup gruplar.
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
         Log.d(TRIGGER_LOG_TAG, "keyCode=" + keyCode
                 + " repeatCount=" + (event != null ? event.getRepeatCount() : -1));
         if (TRIGGER_KEY_CODES.contains(keyCode)) {
             if (event != null && event.getRepeatCount() == 0 && rfidManager.isConnected()) {
-                if (RfidPreferences.isPressAndHoldMode(this)) {
+                if (cancelScanMode) {
+                    if (!isScanning) {
+                        startScanning();
+                    }
+                } else if (RfidPreferences.isPressAndHoldMode(this)) {
                     if (!isScanning) {
                         startScanning();
                     }
@@ -154,7 +156,7 @@ public class WholesaleOrderActivity extends AppCompatActivity {
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         if (TRIGGER_KEY_CODES.contains(keyCode)) {
-            if (isScanning && RfidPreferences.isPressAndHoldMode(this)) {
+            if (isScanning && !cancelScanMode && RfidPreferences.isPressAndHoldMode(this)) {
                 stopScanning();
             }
             return true;
@@ -169,6 +171,7 @@ public class WholesaleOrderActivity extends AppCompatActivity {
             if (order == null) {
                 return false;
             }
+            normalizeOrderLinesToEpcs();
             restoreAcceptedEpcsFromOrder();
             return true;
         }
@@ -199,25 +202,50 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         return true;
     }
 
-    /** Kayitli siparisteki EPC'leri tekrar okunmasin diye accepted set'e yukler. */
+    /**
+     * Eski barkod+miktar satırlarını ham EPC satırlarına açar (geriye uyumluluk).
+     * Her satir = tek EPC; {@code line.barcode} alaninda ham EPC tutulur.
+     */
+    private void normalizeOrderLinesToEpcs() {
+        if (order == null || order.lines.isEmpty()) {
+            return;
+        }
+        ArrayList<WholesaleOrderLine> expanded = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (WholesaleOrderLine line : order.lines) {
+            if (line.epcs != null && !line.epcs.isEmpty()) {
+                for (String epcRaw : line.epcs) {
+                    String epc = epcRaw != null ? epcRaw.trim() : "";
+                    if (TextUtils.isEmpty(epc) || !seen.add(epc)) {
+                        continue;
+                    }
+                    WholesaleOrderLine created = new WholesaleOrderLine(epc, 1);
+                    created.epcs.add(epc);
+                    expanded.add(created);
+                }
+            } else if (!TextUtils.isEmpty(line.barcode) && seen.add(line.barcode.trim())) {
+                String epc = line.barcode.trim();
+                WholesaleOrderLine created = new WholesaleOrderLine(epc, 1);
+                created.epcs.add(epc);
+                expanded.add(created);
+            }
+        }
+        order.lines.clear();
+        order.lines.addAll(expanded);
+    }
+
     private void restoreAcceptedEpcsFromOrder() {
         synchronized (scanLock) {
             acceptedEpcs.clear();
-            epcsByBarcode.clear();
             for (WholesaleOrderLine line : order.lines) {
-                if (line.epcs.isEmpty()) {
-                    continue;
-                }
-                Set<String> set = new HashSet<>();
-                for (String epc : line.epcs) {
-                    if (TextUtils.isEmpty(epc)) {
-                        continue;
-                    }
+                String epc = !TextUtils.isEmpty(line.barcode) ? line.barcode.trim() : "";
+                if (!TextUtils.isEmpty(epc)) {
                     acceptedEpcs.add(epc);
-                    set.add(epc);
                 }
-                if (!set.isEmpty()) {
-                    epcsByBarcode.put(line.barcode, set);
+                for (String stored : line.epcs) {
+                    if (!TextUtils.isEmpty(stored)) {
+                        acceptedEpcs.add(stored.trim());
+                    }
                 }
             }
         }
@@ -235,20 +263,22 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         tvTotalTagCount = findViewById(R.id.tvTotalTagCount);
         RecyclerView rvOrderLines = findViewById(R.id.rvOrderLines);
         fabOrderActions = findViewById(R.id.fabOrderActions);
-        rowSave = findViewById(R.id.rowSave);
-        rowSaveAndSend = findViewById(R.id.rowSaveAndSend);
-        FloatingActionButton fabSave = findViewById(R.id.fabSave);
-        FloatingActionButton fabSaveAndSend = findViewById(R.id.fabSaveAndSend);
+        rowCancelBarcode = findViewById(R.id.rowCancelBarcode);
+        FloatingActionButton fabCancelBarcode = findViewById(R.id.fabCancelBarcode);
+        MaterialButton btnGoToSummary = findViewById(R.id.btnGoToSummary);
 
-        lineAdapter = new WholesaleOrderLineAdapter(this::showDeleteByScanDialog);
+        lineAdapter = new WholesaleOrderLineAdapter();
         rvOrderLines.setLayoutManager(new LinearLayoutManager(this));
         rvOrderLines.setAdapter(lineAdapter);
 
-        btnBack.setOnClickListener(v -> finish());
+        btnBack.setOnClickListener(v -> requestLeaveScanScreen());
         btnAddManualLine.setOnClickListener(v -> showAddManualLineDialog());
         fabOrderActions.setOnClickListener(v -> setFabMenuExpanded(!fabExpanded));
-        fabSave.setOnClickListener(v -> saveDraft());
-        fabSaveAndSend.setOnClickListener(v -> saveAndSend());
+        fabCancelBarcode.setOnClickListener(v -> {
+            setFabMenuExpanded(false);
+            showCancelBarcodeDialog();
+        });
+        btnGoToSummary.setOnClickListener(v -> goToSummary());
     }
 
     private void renderOrder() {
@@ -260,6 +290,9 @@ public class WholesaleOrderActivity extends AppCompatActivity {
     // --- RFID tarama (yalnizca fiziksel tetik) ---
 
     private void toggleScanning() {
+        if (cancelScanMode) {
+            return;
+        }
         if (isScanning) {
             stopScanning();
             return;
@@ -272,7 +305,9 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         RfidConnectionManager.connectAsync(this, result -> {
             updateRfidUi();
             if (result instanceof com.example.armineordermodule.rfid.ConnectResult.Success) {
-                startScanning();
+                if (!cancelScanMode) {
+                    startScanning();
+                }
             } else {
                 showError(getString(R.string.wholesale_order_rfid_connect_failed));
             }
@@ -284,85 +319,73 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         RfidConnectionManager.startInventoryAsync(
                 this,
                 tag -> {
-                    String epc = tag.getEpcId();
-                    if (!EpcBarcodeGrouping.isAcceptedEpc(epc)) {
-                        if (deleteScanMode) {
-                            runOnUiThread(() -> showDeleteScanStatus(
-                                    getString(R.string.wholesale_order_delete_invalid_tag)));
-                        }
-                        // 868 disi / gecersiz — yeni etiket sesi calmasin (tekrar sesi)
-                        return true;
+                    if (cancelScanMode) {
+                        return handleCancelScanTag(tag.getEpcId());
                     }
-                    if (deleteScanMode) {
-                        return handleDeleteScanTag(epc);
-                    }
-                    return handleLiveTagRead(epc);
+                    return handleLiveTagRead(tag.getEpcId());
                 },
                 () -> Unit.INSTANCE,
                 started -> {
                     if (started) {
                         isScanning = true;
+                    } else if (cancelScanMode) {
+                        showCancelScanStatus(getString(R.string.rfid_start_failed));
                     } else {
-                        if (deleteScanMode) {
-                            showDeleteScanStatus(getString(R.string.rfid_start_failed));
-                        } else {
-                            showError(getString(R.string.rfid_start_failed));
-                        }
+                        showError(getString(R.string.rfid_start_failed));
                     }
                     return Unit.INSTANCE;
                 });
     }
 
     /**
-     * Okunan her yeni EPC aninda satira yansir (tetik birakilmasini beklemez).
+     * Okunan her yeni EPC aninda listeye yansir (parse / miktar yok).
      * Donus: {@code false} = surekli SDK ses dongusu kapali.
-     * Yeni urun bip'i ayri [RfidConnectionManager.playBeep] ile calinir
-     * (SDK `beginSound` tek basina ses uretmez; SoundPool gerekir).
-     * Baska siparisteki EPC yuksek sesli uyarilir ve eklenmez.
      */
     private boolean handleLiveTagRead(String epc) {
+        if (cancelScanMode) {
+            return false;
+        }
+        if (TextUtils.isEmpty(epc)) {
+            return false;
+        }
+        final String normalized = epc.trim();
+        if (normalized.isEmpty()) {
+            return false;
+        }
+
         synchronized (scanLock) {
-            if (acceptedEpcs.contains(epc)) {
-                // false: SDK surekli ses dongusunu ACMA (tekrar okumada takili ses olmasin)
+            if (cancelScanMode || acceptedEpcs.contains(normalized)) {
                 return false;
             }
         }
 
         WholesaleOrder otherOrder = WholesaleOrderStore.findOtherOrderContainingEpc(
-                this, epc, order != null ? order.localId : null);
+                this, normalized, order != null ? order.localId : null);
         if (otherOrder != null) {
             warnEpcAlreadyInOtherOrder(otherOrder);
-            // false: cakisan etiketlerde surekli SDK sesi acilmasin
             return false;
         }
 
-        final String barcode;
         synchronized (scanLock) {
-            if (acceptedEpcs.contains(epc)) {
+            if (acceptedEpcs.contains(normalized)) {
                 return false;
             }
-            barcode = EpcBarcodeGrouping.extractBarcode(epc);
-            if (barcode == null) {
-                return false;
-            }
-            acceptedEpcs.add(epc);
-            Set<String> set = epcsByBarcode.get(barcode);
-            if (set == null) {
-                set = new HashSet<>();
-                epcsByBarcode.put(barcode, set);
-            }
-            set.add(epc);
+            acceptedEpcs.add(normalized);
         }
 
         runOnUiThread(() -> {
-            addOrIncrementLine(barcode, 1, epc);
+            if (cancelScanMode) {
+                synchronized (scanLock) {
+                    acceptedEpcs.remove(normalized);
+                }
+                return;
+            }
+            addEpcLine(normalized);
             renderLines();
             updateTotalTagCountUi();
             clearError();
         });
-        // Tek bip: SDK beginSound bayrak degil, SoundPool.playSound gerekir.
         RfidConnectionManager.playBeep();
-        // false => surekli ses dongusunu kapali tut (ayri playBeep yeterli)
         return false;
     }
 
@@ -370,7 +393,6 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         long now = System.currentTimeMillis();
         boolean shouldAlert;
         synchronized (scanLock) {
-            // EPC farketmez: ayni tarama demetinde tek uyari
             shouldAlert = (now - lastDuplicateWarningAtMs) >= DUPLICATE_WARNING_THROTTLE_MS;
             if (shouldAlert) {
                 lastDuplicateWarningAtMs = now;
@@ -403,38 +425,31 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         });
     }
 
-    /**
-     * Silme modunda okunan EPC, kutu uzerinden islenir (tek EPC silme).
-     */
-    private boolean handleDeleteScanTag(String epc) {
-        runOnUiThread(() -> {
-            if (etDeleteEpc != null) {
-                etDeleteEpc.setText(epc);
-            }
-            tryDeleteByEpc(epc);
-        });
-        return false;
-    }
-
-    private void addOrIncrementLine(String barcode, int qty) {
-        addOrIncrementLine(barcode, qty, null);
-    }
-
-    private void addOrIncrementLine(String barcode, int qty, String epc) {
+    private void addEpcLine(String epc) {
+        if (TextUtils.isEmpty(epc) || order == null) {
+            return;
+        }
         for (WholesaleOrderLine line : order.lines) {
-            if (line.barcode.equals(barcode)) {
-                line.qty += qty;
-                if (!TextUtils.isEmpty(epc) && !line.epcs.contains(epc)) {
-                    line.epcs.add(epc);
-                }
+            if (epc.equals(line.barcode)) {
                 return;
             }
         }
-        WholesaleOrderLine created = new WholesaleOrderLine(barcode, qty);
-        if (!TextUtils.isEmpty(epc)) {
-            created.epcs.add(epc);
-        }
+        WholesaleOrderLine created = new WholesaleOrderLine(epc, 1);
+        created.epcs.add(epc);
         order.lines.add(created);
+    }
+
+    private void removeEpcLine(String epc) {
+        if (TextUtils.isEmpty(epc) || order == null) {
+            return;
+        }
+        for (int i = 0; i < order.lines.size(); i++) {
+            WholesaleOrderLine line = order.lines.get(i);
+            if (epc.equals(line.barcode) || line.epcs.contains(epc)) {
+                order.lines.remove(i);
+                return;
+            }
+        }
     }
 
     private void showAddManualLineDialog() {
@@ -454,14 +469,6 @@ public class WholesaleOrderActivity extends AppCompatActivity {
                 if (TextUtils.isEmpty(epc)) {
                     etEpc.setError(getString(R.string.wholesale_order_manual_epc_empty));
                     etEpc.requestFocus();
-                    return;
-                }
-                if (!EpcBarcodeGrouping.isValidManualEpc(epc)) {
-                    etEpc.setError(getString(R.string.wholesale_order_manual_epc_invalid));
-                    showError(getString(R.string.wholesale_order_manual_epc_invalid));
-                    Toast.makeText(this, R.string.wholesale_order_manual_epc_invalid, Toast.LENGTH_LONG).show();
-                    etEpc.requestFocus();
-                    etEpc.selectAll();
                     return;
                 }
 
@@ -492,23 +499,11 @@ public class WholesaleOrderActivity extends AppCompatActivity {
                     return;
                 }
 
-                String barcode = EpcBarcodeGrouping.extractBarcode(epc);
-                if (barcode == null) {
-                    etEpc.setError(getString(R.string.wholesale_order_manual_epc_invalid));
-                    return;
-                }
-
                 synchronized (scanLock) {
                     acceptedEpcs.add(epc);
-                    Set<String> set = epcsByBarcode.get(barcode);
-                    if (set == null) {
-                        set = new HashSet<>();
-                        epcsByBarcode.put(barcode, set);
-                    }
-                    set.add(epc);
                 }
 
-                addOrIncrementLine(barcode, 1, epc);
+                addEpcLine(epc);
                 renderLines();
                 updateTotalTagCountUi();
                 clearError();
@@ -520,195 +515,170 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         etEpc.requestFocus();
     }
 
-    private void showDeleteByScanDialog(WholesaleOrderLine line) {
-        if (line == null || TextUtils.isEmpty(line.barcode)) {
+    // --- Iptal Barkod (RFID sayim ile ayni mantik) ---
+
+    private boolean handleCancelScanTag(String epc) {
+        runOnUiThread(() -> addToPendingCancelList(epc));
+        return false;
+    }
+
+    private void addToPendingCancelList(String epcRaw) {
+        if (!cancelScanMode) {
             return;
         }
-        if (deleteScanDialog != null && deleteScanDialog.isShowing()) {
+        String epc = epcRaw != null ? epcRaw.trim() : "";
+        if (TextUtils.isEmpty(epc)) {
             return;
         }
 
-        // Normal urun ekleme taramasi aciksa once durdur.
+        if (pendingCancelEpcs.contains(epc)) {
+            return;
+        }
+
+        boolean inMainList;
+        synchronized (scanLock) {
+            inMainList = acceptedEpcs.contains(epc);
+        }
+        if (!inMainList) {
+            for (WholesaleOrderLine line : order.lines) {
+                if (epc.equals(line.barcode) || line.epcs.contains(epc)) {
+                    inMainList = true;
+                    break;
+                }
+            }
+        }
+        if (!inMainList) {
+            showCancelScanStatus(getString(R.string.wholesale_order_delete_not_found));
+            return;
+        }
+
+        pendingCancelEpcs.add(epc);
+        renderCancelList();
+        clearCancelScanStatus();
+        RfidConnectionManager.playBeep();
+    }
+
+    private void showCancelBarcodeDialog() {
+        if (cancelScanDialog != null && cancelScanDialog.isShowing()) {
+            return;
+        }
+        cancelScanMode = true;
+        pendingCancelEpcs.clear();
         if (isScanning) {
-            deleteScanMode = true;
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
-                openDeleteScanDialog(line.barcode);
+                openCancelScanDialog();
                 return Unit.INSTANCE;
             });
             return;
         }
-
-        openDeleteScanDialog(line.barcode);
+        openCancelScanDialog();
     }
 
-    private void openDeleteScanDialog(String barcode) {
-        deleteScanMode = true;
-        deleteTargetBarcode = barcode;
+    private void openCancelScanDialog() {
+        cancelScanMode = true;
+        pendingCancelEpcs.clear();
 
-        View dialogView = getLayoutInflater().inflate(R.layout.dialog_delete_order_line, null);
-        TextView tvTarget = dialogView.findViewById(R.id.tvDeleteScanTarget);
-        tvDeleteScanStatus = dialogView.findViewById(R.id.tvDeleteScanStatus);
-        etDeleteEpc = dialogView.findViewById(R.id.etDeleteEpc);
-        tvTarget.setText(getString(R.string.wholesale_order_delete_scan_target, barcode));
-        tvDeleteScanStatus.setVisibility(View.GONE);
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_wholesale_order_cancel_epc, null);
+        tvCancelEpcStatus = dialogView.findViewById(R.id.tvCancelEpcStatus);
+        tvCancelEpcEmpty = dialogView.findViewById(R.id.tvCancelEpcEmpty);
+        RecyclerView rvCancelEpcs = dialogView.findViewById(R.id.rvCancelEpcs);
 
-        etDeleteEpc.setOnEditorActionListener((v, actionId, event) -> {
-            boolean isDone = actionId == EditorInfo.IME_ACTION_DONE;
-            boolean isEnter = event != null
-                    && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
-                    && event.getAction() == KeyEvent.ACTION_DOWN;
-            if (isDone || isEnter) {
-                submitDeleteEpcFromInput();
-                return true;
-            }
-            return false;
-        });
+        cancelEpcAdapter = new RfidHandheldCountingEpcAdapter();
+        rvCancelEpcs.setLayoutManager(new LinearLayoutManager(this));
+        rvCancelEpcs.setAdapter(cancelEpcAdapter);
+        renderCancelList();
 
-        deleteScanDialog = new AlertDialog.Builder(this)
-                .setTitle(R.string.wholesale_order_delete_scan_title)
+        cancelScanDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.wholesale_order_cancel_barcode)
                 .setView(dialogView)
-                .setPositiveButton(R.string.wholesale_order_delete_confirm, null)
-                .setNegativeButton(android.R.string.cancel, (dialog, which) -> dismissDeleteScanDialog(true))
-                .setOnCancelListener(dialog -> dismissDeleteScanDialog(true))
+                .setPositiveButton(R.string.wholesale_order_cancel_barcode_confirm, null)
+                .setNegativeButton(R.string.wholesale_order_cancel_barcode_back,
+                        (dialog, which) -> dismissCancelScanDialog(true))
+                .setOnCancelListener(dialog -> dismissCancelScanDialog(true))
                 .setCancelable(true)
                 .create();
-        deleteScanDialog.setCanceledOnTouchOutside(false);
-        deleteScanDialog.setOnShowListener(dialog -> {
-            deleteScanDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
-                    v -> submitDeleteEpcFromInput());
-            if (deleteScanDialog.getWindow() != null) {
-                deleteScanDialog.getWindow().setSoftInputMode(
-                        WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
+        cancelScanDialog.setCanceledOnTouchOutside(false);
+        cancelScanDialog.setOnShowListener(dialog -> {
+            cancelScanDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
+                    v -> confirmCancelDeletes());
+            if (rfidManager.isConnected() && !isScanning) {
+                startScanning();
             }
-            etDeleteEpc.requestFocus();
         });
-        deleteScanDialog.show();
+        cancelScanDialog.show();
     }
 
-    private void submitDeleteEpcFromInput() {
-        if (etDeleteEpc == null) {
+    private void confirmCancelDeletes() {
+        if (!cancelScanMode) {
             return;
         }
-        String raw = etDeleteEpc.getText() != null ? etDeleteEpc.getText().toString().trim() : "";
-        if (TextUtils.isEmpty(raw)) {
-            showDeleteScanStatus(getString(R.string.wholesale_order_delete_empty));
-            return;
-        }
-        tryDeleteByEpc(raw);
-    }
-
-    /**
-     * Etiketteki karekod / RFID EPC degeri ile silme.
-     * Sadece okutulan o EPC dusurulur (miktar -1); satir ancak miktar 0 olunca kalkar.
-     */
-    private void tryDeleteByEpc(String epcRaw) {
-        if (!deleteScanMode) {
+        if (pendingCancelEpcs.isEmpty()) {
+            showCancelScanStatus(getString(R.string.wholesale_order_cancel_barcode_delete_empty));
             return;
         }
 
-        String epc = epcRaw != null ? epcRaw.trim() : "";
-        if (TextUtils.isEmpty(epc)) {
-            showDeleteScanStatus(getString(R.string.wholesale_order_delete_empty));
-            return;
-        }
-
-        String barcode = EpcBarcodeGrouping.extractBarcode(epc);
-        if (barcode == null) {
-            showDeleteScanStatus(getString(R.string.wholesale_order_delete_invalid_tag));
-            return;
-        }
-
-        if (!barcode.equals(deleteTargetBarcode)) {
-            showDeleteScanStatus(getString(R.string.wholesale_order_delete_wrong_product));
-            if (etDeleteEpc != null) {
-                etDeleteEpc.selectAll();
-            }
-            return;
-        }
-
-        boolean removed;
+        int removedCount = 0;
         synchronized (scanLock) {
-            removed = acceptedEpcs.remove(epc);
-            if (removed) {
-                Set<String> set = epcsByBarcode.get(barcode);
-                if (set != null) {
-                    set.remove(epc);
-                    if (set.isEmpty()) {
-                        epcsByBarcode.remove(barcode);
+            for (String epc : pendingCancelEpcs) {
+                if (acceptedEpcs.remove(epc)) {
+                    removeEpcLine(epc);
+                    removedCount++;
+                } else {
+                    // accepted set'te yoksa yine satirdan dusurmeyi dene
+                    int before = order.lines.size();
+                    removeEpcLine(epc);
+                    if (order.lines.size() < before) {
+                        removedCount++;
                     }
                 }
             }
         }
 
-        if (!removed) {
-            showDeleteScanStatus(getString(R.string.wholesale_order_delete_epc_not_in_order));
-            if (etDeleteEpc != null) {
-                etDeleteEpc.selectAll();
-            }
+        if (removedCount <= 0) {
+            showCancelScanStatus(getString(R.string.wholesale_order_delete_not_found));
             return;
         }
 
-        decrementLineQty(barcode, 1, epc);
+        pendingCancelEpcs.clear();
         renderLines();
         updateTotalTagCountUi();
-        Toast.makeText(this, R.string.wholesale_order_delete_success, Toast.LENGTH_SHORT).show();
+        Toast.makeText(this,
+                getString(R.string.wholesale_order_delete_success) + " (" + removedCount + ")",
+                Toast.LENGTH_SHORT).show();
 
         if (isScanning) {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
-                dismissDeleteScanDialog(false);
+                dismissCancelScanDialog(false);
                 return Unit.INSTANCE;
             });
         } else {
-            dismissDeleteScanDialog(false);
+            dismissCancelScanDialog(false);
         }
     }
 
-    /** Belirli barkod satirinin miktarini azaltir; ilgili EPC'yi satirdan dusurur. */
-    private void decrementLineQty(String barcode, int qty, String epc) {
-        if (TextUtils.isEmpty(barcode) || order == null || qty <= 0) {
+    private void renderCancelList() {
+        if (cancelEpcAdapter == null) {
             return;
         }
-        for (int i = 0; i < order.lines.size(); i++) {
-            WholesaleOrderLine line = order.lines.get(i);
-            if (!barcode.equals(line.barcode)) {
-                continue;
-            }
-            if (!TextUtils.isEmpty(epc)) {
-                line.epcs.remove(epc);
-            }
-            line.qty -= qty;
-            if (line.qty <= 0) {
-                order.lines.remove(i);
-            }
-            return;
+        cancelEpcAdapter.submitList(new ArrayList<>(pendingCancelEpcs));
+        if (tvCancelEpcEmpty != null) {
+            tvCancelEpcEmpty.setVisibility(pendingCancelEpcs.isEmpty() ? View.VISIBLE : View.GONE);
         }
     }
 
-    /** Kaydetmeden once runtime EPC set'ini satir listesine senkronlar. */
-    private void syncEpcsIntoOrderLines() {
-        synchronized (scanLock) {
-            for (WholesaleOrderLine line : order.lines) {
-                line.epcs.clear();
-                Set<String> set = epcsByBarcode.get(line.barcode);
-                if (set != null) {
-                    line.epcs.addAll(set);
-                }
+    private void dismissCancelScanDialog(boolean cancelled) {
+        cancelScanMode = false;
+        pendingCancelEpcs.clear();
+        tvCancelEpcStatus = null;
+        tvCancelEpcEmpty = null;
+        cancelEpcAdapter = null;
+        if (cancelScanDialog != null) {
+            if (cancelScanDialog.isShowing()) {
+                cancelScanDialog.dismiss();
             }
-        }
-    }
-
-    private void dismissDeleteScanDialog(boolean cancelled) {
-        deleteScanMode = false;
-        deleteTargetBarcode = "";
-        tvDeleteScanStatus = null;
-        etDeleteEpc = null;
-        if (deleteScanDialog != null) {
-            if (deleteScanDialog.isShowing()) {
-                deleteScanDialog.dismiss();
-            }
-            deleteScanDialog = null;
+            cancelScanDialog = null;
         }
         if (isScanning) {
             RfidConnectionManager.stopInventoryAsync(() -> {
@@ -721,19 +691,36 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         }
     }
 
-    private void showDeleteScanStatus(String message) {
-        if (tvDeleteScanStatus == null) {
+    private void showCancelScanStatus(String message) {
+        if (tvCancelEpcStatus == null) {
             return;
         }
-        tvDeleteScanStatus.setText(message);
-        tvDeleteScanStatus.setVisibility(View.VISIBLE);
+        tvCancelEpcStatus.setText(message);
+        tvCancelEpcStatus.setVisibility(View.VISIBLE);
+    }
+
+    private void clearCancelScanStatus() {
+        if (tvCancelEpcStatus != null) {
+            tvCancelEpcStatus.setVisibility(View.GONE);
+            tvCancelEpcStatus.setText("");
+        }
+    }
+
+    /** Kaydetmeden once her satirin EPC listesini kimlikle senkronlar. */
+    private void syncEpcsIntoOrderLines() {
+        for (WholesaleOrderLine line : order.lines) {
+            line.epcs.clear();
+            if (!TextUtils.isEmpty(line.barcode)) {
+                line.epcs.add(line.barcode);
+            }
+            line.qty = 1;
+        }
     }
 
     private void renderLines() {
         lineAdapter.submitList(order.lines);
         tvLinesEmptyHint.setVisibility(order.lines.isEmpty() ? View.VISIBLE : View.GONE);
-        tvLinesSummary.setText(getString(
-                R.string.wholesale_order_lines_summary, order.totalLineCount(), order.totalQty()));
+        tvLinesSummary.setText(getString(R.string.wholesale_order_lines_summary, order.totalLineCount()));
     }
 
     private void updateTotalTagCountUi() {
@@ -741,10 +728,7 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         synchronized (scanLock) {
             total = acceptedEpcs.size();
         }
-        // Manuel satirlardaki miktar RFID EPC'si olmadan eklenebilir; footer RFID benzersiz sayisini gosterir.
-        // Manuel eklemeler icin totalQty ile max alarak tutarli gosterim:
-        int lineQty = order != null ? order.totalQty() : 0;
-        int display = Math.max(total, lineQty);
+        int display = Math.max(total, order != null ? order.totalLineCount() : 0);
         tvTotalTagCount.setText(getString(R.string.wholesale_order_total_tags_footer, display));
     }
 
@@ -755,13 +739,12 @@ public class WholesaleOrderActivity extends AppCompatActivity {
                 connected ? R.string.main_rfid_status_connected : R.string.main_rfid_status_disconnected));
     }
 
-    // --- FAB (Kaydet / Kaydet ve Gonder) ---
+    // --- FAB (Iptal Barkod) ---
 
     private void setFabMenuExpanded(boolean expanded) {
         fabExpanded = expanded;
         fabOrderActions.animate().rotation(expanded ? 45f : 0f).setDuration(150).start();
-        animateFabRow(rowSave, expanded);
-        animateFabRow(rowSaveAndSend, expanded);
+        animateFabRow(rowCancelBarcode, expanded);
     }
 
     private void animateFabRow(View row, boolean expanded) {
@@ -776,53 +759,71 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         }
     }
 
-    // --- Kaydet / Kaydet ve Gonder ---
-
-    private void saveDraft() {
+    /** Okutulan EPC'leri kaydeder ve urun ozet ekranina gider. */
+    private void goToSummary() {
         setFabMenuExpanded(false);
-        if (!validateOrder()) {
-            return;
-        }
-        syncEpcsIntoOrderLines();
-        order.status = WholesaleOrder.STATUS_DRAFT;
-        WholesaleOrderStore.upsert(this, order);
-        Toast.makeText(this, R.string.wholesale_order_draft_saved_message, Toast.LENGTH_LONG).show();
-        finish();
-    }
-
-    private void saveAndSend() {
-        setFabMenuExpanded(false);
-        if (!validateOrder()) {
-            return;
-        }
-
-        syncEpcsIntoOrderLines();
-        JSONObject apiJson;
-        try {
-            apiJson = order.toApiJson();
-        } catch (JSONException e) {
-            showError(getString(R.string.wholesale_order_json_error));
-            return;
-        }
-        Log.d(TAG, "Siparis JSON (gonderim bekliyor): " + apiJson);
-
-        order.status = WholesaleOrder.STATUS_PENDING_SEND;
-        WholesaleOrderStore.upsert(this, order);
-        Toast.makeText(this, R.string.wholesale_order_pending_send_saved_message, Toast.LENGTH_LONG).show();
-        finish();
-    }
-
-    private boolean validateOrder() {
         clearError();
         if (TextUtils.isEmpty(order.warehouseCode) || TextUtils.isEmpty(order.officeCode)) {
             showError(getString(R.string.wholesale_order_warehouse_required));
-            return false;
+            return;
         }
         if (order.lines.isEmpty()) {
             showError(getString(R.string.wholesale_order_lines_required));
-            return false;
+            return;
         }
-        return true;
+        if (isScanning) {
+            RfidConnectionManager.stopInventoryAsync(() -> {
+                isScanning = false;
+                runOnUiThread(this::persistAndOpenSummary);
+                return Unit.INSTANCE;
+            });
+            return;
+        }
+        persistAndOpenSummary();
+    }
+
+    /**
+     * Okutulmus EPC varken geri cikis: kaydetmeden ayrilmayi onaylatir.
+     * (Kaydet ozet ekranindadir; burada yalnizca uyarilir.)
+     */
+    private void requestLeaveScanScreen() {
+        if (hasScannedEpcs()) {
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.wholesale_order_unsaved_title)
+                    .setMessage(R.string.wholesale_order_unsaved_message)
+                    .setPositiveButton(R.string.wholesale_order_unsaved_stay, null)
+                    .setNegativeButton(R.string.wholesale_order_unsaved_leave,
+                            (dialog, which) -> leaveScanScreen())
+                    .show();
+            return;
+        }
+        leaveScanScreen();
+    }
+
+    private boolean hasScannedEpcs() {
+        return order != null && !order.lines.isEmpty();
+    }
+
+    private void leaveScanScreen() {
+        if (isScanning) {
+            RfidConnectionManager.stopInventoryAsync(() -> {
+                isScanning = false;
+                runOnUiThread(this::finish);
+                return Unit.INSTANCE;
+            });
+            return;
+        }
+        finish();
+    }
+
+    private void persistAndOpenSummary() {
+        syncEpcsIntoOrderLines();
+        order.status = WholesaleOrder.STATUS_DRAFT;
+        WholesaleOrderStore.upsert(this, order);
+
+        Intent intent = new Intent(this, WholesaleOrderSummaryActivity.class);
+        intent.putExtra(WholesaleOrderSummaryActivity.EXTRA_ORDER_LOCAL_ID, order.localId);
+        startActivity(intent);
     }
 
     private void showError(String message) {

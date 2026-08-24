@@ -77,6 +77,24 @@ public final class EpcBarcodeGrouping {
     }
 
     /**
+     * Enrich / ozet icin barkod anahtari: EPC'nin ilk {@value #BARCODE_LENGTH} hanesi.
+     * 868 zorunlulugu yok (okutma ham EPC kabul eder).
+     */
+    public static String extractBarcodeForEnrich(String epc) {
+        if (epc == null) {
+            return null;
+        }
+        String value = epc.trim();
+        if (value.isEmpty()) {
+            return null;
+        }
+        if (value.length() < BARCODE_LENGTH) {
+            return value;
+        }
+        return value.substring(0, BARCODE_LENGTH);
+    }
+
+    /**
      * EPC gecersiz/kisa ise veya {@value #ACCEPTED_EPC_PREFIX} ile baslamiyorsa null doner.
      */
     public static String extractBarcode(String epc) {

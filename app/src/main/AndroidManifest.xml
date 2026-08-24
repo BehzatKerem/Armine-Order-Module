@@ -63,6 +63,10 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".WholesaleOrderSummaryActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".InventoryListActivity"
             android:exported="false" />
 
@@ -80,6 +84,19 @@
             android:name=".InventoryScanActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".RfidHandheldCountingStartActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".RfidHandheldCountingDetailActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".RfidHandheldCountingScanActivity"
+            android:exported="false" />
 
         <activity
             android:name=".ServerSettingsActivity"

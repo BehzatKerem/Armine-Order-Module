@@ -13,7 +13,7 @@
         android:id="@+id/tvDeleteScanMessage"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="@string/wholesale_order_delete_scan_message"
+        android:text="@string/inventory_delete_scan_message"
         android:textColor="@color/login_title"
         android:textSize="15sp" />
 
@@ -32,7 +32,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="12dp"
-        android:hint="@string/wholesale_order_delete_epc_hint"
+        android:hint="@string/inventory_delete_epc_hint"
         app:boxStrokeColor="@color/login_primary"
         app:hintTextColor="@color/login_primary">
 
@@ -51,7 +51,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
-        android:text="@string/wholesale_order_delete_scan_hint"
+        android:text="@string/inventory_delete_scan_hint"
         android:textColor="@color/login_subtitle"
         android:textSize="13sp" />
 

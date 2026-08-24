@@ -5,6 +5,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,7 +15,8 @@ import java.util.UUID;
  * API'ye gonderilecek alanlarin disinda (customerDescription, warehouseDescription,
  * status, createdAtMillis, localId) yalnizca ekranda gosterim / lokal yonetim icin
  * tutulan alanlar da bulunur; bunlar {@link #toApiJson()} ciktisina dahil edilmez.
- * Satir EPC listesi hem lokal tekillik hem API `Lines[].Epcs` icin kullanilir.
+ * Satir EPC listesi lokal tekillik icin tutulur; API {@link #toApiJson()} yalnizca
+ * benzersiz EPC listesini gonderir (ItemCode / miktar gosterimlik).
  */
 public class WholesaleOrder {
 
@@ -59,7 +61,32 @@ public class WholesaleOrder {
         return total;
     }
 
-    /** API'ye gonderilecek istek govdesi. Bkz. docs/TOPTAN_SIPARIS.md Bolum 1. */
+    /** Siparisteki tum benzersiz EPC'ler (eklenme sirasi korunur). */
+    public List<String> collectAllEpcs() {
+        LinkedHashSet<String> set = new LinkedHashSet<>();
+        for (WholesaleOrderLine line : lines) {
+            boolean addedFromEpcs = false;
+            if (line.epcs != null) {
+                for (String epc : line.epcs) {
+                    if (epc != null && !epc.isEmpty()) {
+                        set.add(epc);
+                        addedFromEpcs = true;
+                    }
+                }
+            }
+            // Yeni model: barcode alani ham EPC. Eski modelde barcode 13 haneli urun
+            // kodudur; epcs doluysa onu tekrar gondermemek gerekir.
+            if (!addedFromEpcs && line.barcode != null && !line.barcode.isEmpty()) {
+                set.add(line.barcode);
+            }
+        }
+        return new ArrayList<>(set);
+    }
+
+    /**
+     * API'ye gonderilecek istek govdesi.
+     * Gonderimde yalnizca benzersiz EPC listesi vardir; barkod/miktar/ItemCode yok.
+     */
     public JSONObject toApiJson() throws JSONException {
         JSONObject json = new JSONObject();
         json.put("ModelType", MODEL_TYPE);
@@ -72,21 +99,11 @@ public class WholesaleOrder {
         json.put("IsReturn", false);
         json.put("Description", description);
 
-        JSONArray linesJson = new JSONArray();
-        for (WholesaleOrderLine line : lines) {
-            JSONObject lineJson = new JSONObject();
-            lineJson.put("Barcode", line.barcode);
-            lineJson.put("Qty1", line.qty);
-            JSONArray epcsJson = new JSONArray();
-            for (String epc : line.epcs) {
-                if (epc != null && !epc.isEmpty()) {
-                    epcsJson.put(epc);
-                }
-            }
-            lineJson.put("Epcs", epcsJson);
-            linesJson.put(lineJson);
+        JSONArray epcsJson = new JSONArray();
+        for (String epc : collectAllEpcs()) {
+            epcsJson.put(epc);
         }
-        json.put("Lines", linesJson);
+        json.put("Epcs", epcsJson);
         return json;
     }
 

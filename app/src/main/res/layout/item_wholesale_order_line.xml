@@ -2,43 +2,20 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="8dp"
+    android:layout_marginBottom="6dp"
     android:background="@color/white"
-    android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="14dp"
     android:paddingTop="10dp"
-    android:paddingEnd="8dp"
+    android:paddingEnd="14dp"
     android:paddingBottom="10dp">
 
     <TextView
         android:id="@+id/tvLineBarcode"
-        android:layout_width="0dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
+        android:fontFamily="monospace"
         android:textColor="@color/login_title"
-        android:textSize="15sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/tvLineQty"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginEnd="8dp"
-        android:minWidth="48dp"
-        android:gravity="center"
-        android:textColor="@color/login_primary"
-        android:textSize="16sp"
-        android:textStyle="bold" />
-
-    <ImageButton
-        android:id="@+id/btnRemoveLine"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="@string/wholesale_order_remove_line"
-        android:padding="6dp"
-        android:scaleType="centerInside"
-        android:src="@drawable/ic_delete" />
+        android:textSize="13sp" />
 
 </LinearLayout>
