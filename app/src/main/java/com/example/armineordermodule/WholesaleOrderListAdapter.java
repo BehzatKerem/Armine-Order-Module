@@ -18,6 +18,9 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
+/**
+ * Aktarilmamis / taslak siparisler (Aç / Aktar / Sil).
+ */
 public class WholesaleOrderListAdapter extends RecyclerView.Adapter<WholesaleOrderListAdapter.ViewHolder> {
 
     public interface Listener {
@@ -91,9 +94,8 @@ public class WholesaleOrderListAdapter extends RecyclerView.Adapter<WholesaleOrd
                     ? order.warehouseDescription
                     : order.warehouseCode;
             String date = dateFormat.format(new Date(order.createdAtMillis));
-            String meta = itemView.getContext().getString(
-                    R.string.wholesale_order_item_meta, order.totalLineCount(), warehouse, date);
-            tvMeta.setText(meta);
+            tvMeta.setText(itemView.getContext().getString(
+                    R.string.wholesale_order_item_meta, order.totalLineCount(), warehouse, date));
 
             boolean pendingSend = WholesaleOrder.STATUS_PENDING_SEND.equals(order.status);
             tvStatusBadge.setText(pendingSend
@@ -101,19 +103,19 @@ public class WholesaleOrderListAdapter extends RecyclerView.Adapter<WholesaleOrd
                     : R.string.wholesale_order_status_draft);
 
             View.OnClickListener openClick = v -> {
-                if (listener != null) {
+                if (listener != null && !order.isTransferred()) {
                     listener.onOpenOrder(order);
                 }
             };
             tvCustomer.setOnClickListener(openClick);
             btnOpen.setOnClickListener(openClick);
             btnTransfer.setOnClickListener(v -> {
-                if (listener != null) {
+                if (listener != null && !order.isTransferred()) {
                     listener.onTransferOrder(order);
                 }
             });
             btnDelete.setOnClickListener(v -> {
-                if (listener != null) {
+                if (listener != null && !order.isTransferred()) {
                     listener.onDeleteOrder(order);
                 }
             });

@@ -171,6 +171,10 @@ public class WholesaleOrderActivity extends AppCompatActivity {
             if (order == null) {
                 return false;
             }
+            if (order.isTransferred()) {
+                Toast.makeText(this, R.string.wholesale_order_sent_locked, Toast.LENGTH_LONG).show();
+                return false;
+            }
             normalizeOrderLinesToEpcs();
             restoreAcceptedEpcsFromOrder();
             return true;

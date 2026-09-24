@@ -64,17 +64,10 @@ public class WholesaleOrderSummaryAdapter
             tvProductQty.setText(itemView.getContext().getString(
                     R.string.wholesale_order_summary_qty, info.qty));
 
-            String colorText = !info.colorDescription.isEmpty()
-                    ? info.colorDescription
-                    : info.colorCode;
-            if (info.found && !colorText.isEmpty()) {
+            String colorLine = formatColor(info);
+            if (!colorLine.isEmpty()) {
                 tvProductColor.setVisibility(View.VISIBLE);
-                if (!info.colorDescription.isEmpty() && !info.colorCode.isEmpty()
-                        && !info.colorDescription.equals(info.colorCode)) {
-                    tvProductColor.setText(info.colorDescription + " (" + info.colorCode + ")");
-                } else {
-                    tvProductColor.setText(colorText);
-                }
+                tvProductColor.setText(colorLine);
             } else {
                 tvProductColor.setVisibility(View.GONE);
             }
@@ -115,6 +108,26 @@ public class WholesaleOrderSummaryAdapter
                         R.string.wholesale_order_summary_stock_ok, info.stock));
                 tvProductStock.setTextColor(okColor);
             }
+        }
+
+        private String formatColor(WholesaleOrderProductInfo info) {
+            boolean hasDescription = !info.colorDescription.isEmpty();
+            boolean hasCode = !info.colorCode.isEmpty();
+            if (hasDescription && hasCode && !info.colorDescription.equals(info.colorCode)) {
+                return itemView.getContext().getString(
+                        R.string.wholesale_order_summary_color,
+                        info.colorDescription,
+                        info.colorCode);
+            }
+            if (hasDescription) {
+                return itemView.getContext().getString(
+                        R.string.wholesale_order_summary_color_single, info.colorDescription);
+            }
+            if (hasCode) {
+                return itemView.getContext().getString(
+                        R.string.wholesale_order_summary_color_single, info.colorCode);
+            }
+            return "";
         }
     }
 }

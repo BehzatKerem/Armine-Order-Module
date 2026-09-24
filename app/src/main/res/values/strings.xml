@@ -238,11 +238,18 @@
     <string name="wholesale_order_new">Yeni Sipariş</string>
     <string name="wholesale_order_pending_banner">Aktarılmamış fişiniz bulunmaktadır</string>
     <string name="wholesale_order_empty_hint">Henüz sipariş yok. Yeni sipariş oluşturmak için + butonuna basın.</string>
+    <string name="wholesale_order_empty_sent_hint">NebimV3\'e aktarılmış sipariş yok.</string>
+    <string name="wholesale_order_section_pending">Aktarılmamış / taslak</string>
+    <string name="wholesale_order_section_sent">NebimV3 aktarılmış siparişler</string>
     <string name="wholesale_order_item_meta">%1$d EPC \u2022 %2$s \u2022 %3$s</string>
     <string name="wholesale_order_status_draft">Taslak</string>
     <string name="wholesale_order_status_pending_send">Gönderim bekliyor</string>
+    <string name="wholesale_order_status_sent">NebimV3 aktarıldı</string>
     <string name="wholesale_order_list_open">Aç</string>
     <string name="wholesale_order_list_transfer">Aktar</string>
+    <string name="wholesale_order_list_transferred_nebim">Sipariş NebimV3 aktarıldı</string>
+    <string name="wholesale_order_list_already_transferred">Bu sipariş zaten NebimV3\'e aktarıldı.</string>
+    <string name="wholesale_order_sent_locked">Aktarılmış sipariş açılamaz veya silinemez.</string>
     <string name="wholesale_order_list_delete">Fişi sil</string>
     <string name="wholesale_order_list_delete_title">Fişi sil</string>
     <string name="wholesale_order_list_delete_message">Bu aktarılmamış fişi silmek istediğinize emin misiniz?</string>
@@ -313,6 +320,8 @@
     <string name="wholesale_order_summary_loading">Ürün bilgileri yükleniyor…</string>
     <string name="wholesale_order_summary_qty">x%1$d</string>
     <string name="wholesale_order_summary_item_code">Kod: %1$s</string>
+    <string name="wholesale_order_summary_color">Renk: %1$s (%2$s)</string>
+    <string name="wholesale_order_summary_color_single">Renk: %1$s</string>
     <string name="wholesale_order_summary_stock_ok">Stok: %1$d</string>
     <string name="wholesale_order_summary_stock_short">Stok yetersiz: %1$d</string>
     <string name="wholesale_order_summary_stock_not_found">Ürün / stok bulunamadı</string>
@@ -322,6 +331,11 @@
     <string name="wholesale_order_save_and_send">Kaydet ve Gönder</string>
     <string name="wholesale_order_draft_saved_message">Aktarılmamış fişiniz bulunmaktadır</string>
     <string name="wholesale_order_pending_send_saved_message">Sipariş gönderime hazırlandı. Aktarılmamış fişiniz bulunmaktadır.</string>
+    <string name="wholesale_order_sending">Sipariş gönderiliyor…</string>
+    <string name="wholesale_order_sent_success">Sipariş başarıyla gönderildi.</string>
+    <string name="wholesale_order_sent_nebim_v3">Sipariş başarıyla NebimV3 gönderildi</string>
+    <string name="wholesale_order_sent_nebim_v3_with_desc">%1$s\nSipariş başarıyla NebimV3 gönderildi</string>
+    <string name="wholesale_order_send_failed">Sipariş gönderilemedi.</string>
     <string name="wholesale_order_json_error">Sipariş verisi oluşturulamadı.</string>
 
     <string name="rfid_scan_title">RFID Tarama (Test)</string>

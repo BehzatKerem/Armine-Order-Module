@@ -14,9 +14,9 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Toptan siparis (fis) taslaklarinin lokal deposu. API endpoint'i hazir olana kadar
- * hem "Kaydet" (DRAFT) hem "Kaydet ve Gonder" (PENDING_SEND) ile olusan siparisler
- * burada tutulur. Bkz. docs/TOPTAN_SIPARIS.md.
+ * Toptan siparis (fis) lokal deposu. DRAFT / PENDING_SEND / SENT fişleri tutar.
+ * SENT fişler silinemez; EPC tekilligi SENT dahil tum fislerde aranir.
+ * Bkz. docs/TOPTAN_SIPARIS.md.
  */
 public final class WholesaleOrderStore {
 
@@ -65,7 +65,12 @@ public final class WholesaleOrderStore {
     }
 
     public static boolean hasPendingOrders(Context context) {
-        return !getAll(context).isEmpty();
+        for (WholesaleOrder order : getAll(context)) {
+            if (!order.isTransferred()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Ayni localId'ye sahip siparis varsa yerine yazar, yoksa ekler. */
@@ -85,19 +90,32 @@ public final class WholesaleOrderStore {
         saveAll(context, orders);
     }
 
-    public static void delete(Context context, String localId) {
+    /**
+     * Aktarilmis (SENT) fis silinmez.
+     * @return true silindiyse
+     */
+    public static boolean delete(Context context, String localId) {
+        if (TextUtils.isEmpty(localId)) {
+            return false;
+        }
         List<WholesaleOrder> orders = getAll(context);
         for (int i = 0; i < orders.size(); i++) {
-            if (orders.get(i).localId.equals(localId)) {
+            WholesaleOrder order = orders.get(i);
+            if (localId.equals(order.localId)) {
+                if (order.isTransferred()) {
+                    return false;
+                }
                 orders.remove(i);
-                break;
+                saveAll(context, orders);
+                return true;
             }
         }
-        saveAll(context, orders);
+        return false;
     }
 
     /**
-     * Verilen EPC baska bir lokal sipariste (taslak / gonderim bekleyen) var mi?
+     * Verilen EPC baska bir lokal sipariste var mi? (taslak, pending ve SENT dahil —
+     * aktarilmis etiket baska siparise okutulamaz).
      * {@code excludeLocalId} haric tutulur (acik olan siparis).
      */
     public static WholesaleOrder findOtherOrderContainingEpc(
