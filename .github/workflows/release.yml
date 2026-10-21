@@ -39,7 +39,11 @@ jobs:
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install "platforms;android-37"
+          sdkmanager --install "platforms;android-37.0"
+          # AGP release(37) platforms/android-37 arar. Paket android-37.0 olarak iner.
+          if [ ! -e "${ANDROID_HOME}/platforms/android-37" ]; then
+            ln -s android-37.0 "${ANDROID_HOME}/platforms/android-37"
+          fi
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
