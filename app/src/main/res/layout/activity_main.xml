@@ -103,14 +103,14 @@
             android:orientation="horizontal">
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnInventory"
+                android:id="@+id/btnWarehouseTransfer"
                 style="@style/Widget.Armine.MenuButton"
                 android:layout_width="0dp"
                 android:layout_height="140dp"
                 android:layout_marginEnd="8dp"
                 android:layout_weight="1"
-                android:text="@string/menu_inventory"
-                app:icon="@drawable/ic_menu_inventory" />
+                android:text="@string/menu_warehouse_transfer"
+                app:icon="@drawable/ic_menu_transfer" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnRfidCounting"

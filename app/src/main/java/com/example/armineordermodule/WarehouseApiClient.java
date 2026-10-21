@@ -23,6 +23,7 @@ import okhttp3.Response;
 public final class WarehouseApiClient {
 
     private static final String GET_WAREHOUSES_PATH = "/api/FrogMobileHandheldWarehouse/GetWarehouses";
+    private static final String SEARCH_WAREHOUSE_PATH = "/api/FrogMobileHandheldWarehouse/SearchWarehouse";
     private static final MediaType JSON_MEDIA_TYPE = MediaType.get("application/json; charset=utf-8");
 
     private WarehouseApiClient() {
@@ -30,6 +31,12 @@ public final class WarehouseApiClient {
 
     public interface WarehousesCallback {
         void onSuccess(WarehousesResult result);
+
+        void onError(String message);
+    }
+
+    public interface WarehouseSearchCallback {
+        void onSuccess(List<WarehouseItem> warehouses);
 
         void onError(String message);
     }
@@ -104,6 +111,92 @@ public final class WarehouseApiClient {
                 });
             }
         });
+    }
+
+    /**
+     * Bloklu olmayan depolari aciklamaya gore arar.
+     * Donen kayitlar: warehouseCode, warehouseDescription, officeCode.
+     * Cagiran, yeni karakter geldiginde onceki {@link Call#cancel()} ile iptal edebilir.
+     */
+    public static Call searchWarehouses(String serverUrl, String token, String databaseName,
+                                        String search, WarehouseSearchCallback callback) {
+        Handler mainHandler = new Handler(Looper.getMainLooper());
+
+        if (TextUtils.isEmpty(token)) {
+            mainHandler.post(() -> callback.onError("Oturum bulunamadi. Tekrar giris yapin."));
+            return null;
+        }
+        if (TextUtils.isEmpty(databaseName)) {
+            mainHandler.post(() -> callback.onError("Varsayilan veritabani bilgisi eksik."));
+            return null;
+        }
+
+        JSONObject requestJson = new JSONObject();
+        try {
+            requestJson.put("databaseName", databaseName);
+            requestJson.put("search", search != null ? search : "");
+        } catch (JSONException e) {
+            mainHandler.post(() -> callback.onError("Istek olusturulamadi."));
+            return null;
+        }
+
+        Request request;
+        try {
+            String base = ServerPreferences.normalizeServerForAndroidClient(serverUrl);
+            if (TextUtils.isEmpty(base)) {
+                throw new IllegalArgumentException("Empty server url");
+            }
+            RequestBody body = RequestBody.create(requestJson.toString(), JSON_MEDIA_TYPE);
+            request = new Request.Builder()
+                    .url(base + SEARCH_WAREHOUSE_PATH)
+                    .post(body)
+                    .addHeader("Content-Type", "application/json")
+                    .addHeader("Authorization", "Bearer " + token)
+                    .build();
+        } catch (Exception e) {
+            mainHandler.post(() -> callback.onError("Sunucu adresi gecersiz."));
+            return null;
+        }
+
+        Call call = ApiHttpClient.get().newCall(request);
+        call.enqueue(new Callback() {
+            @Override
+            public void onFailure(Call failedCall, IOException e) {
+                if (failedCall.isCanceled()) {
+                    return;
+                }
+                mainHandler.post(() -> callback.onError(
+                        "Sunucuya baglanilamadi. Internet baglantinizi ve sunucu adresini kontrol edin."));
+            }
+
+            @Override
+            public void onResponse(Call responseCall, Response response) {
+                String bodyString;
+                try {
+                    bodyString = response.body() != null ? response.body().string() : "";
+                } catch (IOException e) {
+                    mainHandler.post(() -> callback.onError("Sunucu yaniti okunamadi."));
+                    return;
+                } finally {
+                    response.close();
+                }
+
+                if (response.code() == 401 || response.code() == 403) {
+                    mainHandler.post(() -> callback.onError("Oturum gecersiz. Tekrar giris yapin."));
+                    return;
+                }
+
+                SearchParsed parsed = parseSearchResponse(response.code(), bodyString);
+                mainHandler.post(() -> {
+                    if (parsed.success && parsed.warehouses != null) {
+                        callback.onSuccess(parsed.warehouses);
+                    } else {
+                        callback.onError(parsed.message);
+                    }
+                });
+            }
+        });
+        return call;
     }
 
     private static String buildUrl(String serverUrl) {
@@ -235,9 +328,73 @@ public final class WarehouseApiClient {
         return updated;
     }
 
+    private static SearchParsed parseSearchResponse(int httpCode, String body) {
+        SearchParsed parsed = new SearchParsed();
+
+        if (TextUtils.isEmpty(body)) {
+            parsed.success = false;
+            parsed.message = (httpCode >= 200 && httpCode < 300)
+                    ? "Sunucudan bos yanit alindi."
+                    : "Sunucu hatasi (" + httpCode + ")";
+            return parsed;
+        }
+
+        try {
+            JSONObject json = new JSONObject(body);
+            parsed.success = json.optBoolean("success", httpCode >= 200 && httpCode < 300);
+            parsed.message = json.optString("message", "");
+
+            if (!parsed.success) {
+                if (TextUtils.isEmpty(parsed.message)) {
+                    parsed.message = "Depolar aranamadi.";
+                }
+                return parsed;
+            }
+
+            parsed.warehouses = parseWarehouseList(extractSearchArray(json));
+        } catch (JSONException e) {
+            parsed.success = false;
+            parsed.message = "Sunucu yaniti anlasilamadi.";
+        }
+
+        if (!parsed.success && TextUtils.isEmpty(parsed.message)) {
+            parsed.message = "Depolar aranamadi.";
+        }
+        if (parsed.success && parsed.warehouses == null) {
+            parsed.warehouses = new ArrayList<>();
+        }
+        return parsed;
+    }
+
+    private static JSONArray extractSearchArray(JSONObject json) {
+        Object data = json.opt("data");
+        if (data instanceof JSONArray) {
+            return (JSONArray) data;
+        }
+        if (data instanceof JSONObject) {
+            JSONObject dataObject = (JSONObject) data;
+            JSONArray warehouses = dataObject.optJSONArray("warehouses");
+            if (warehouses != null) {
+                return warehouses;
+            }
+            JSONArray items = dataObject.optJSONArray("items");
+            if (items != null) {
+                return items;
+            }
+        }
+        JSONArray root = json.optJSONArray("warehouses");
+        return root != null ? root : new JSONArray();
+    }
+
     private static class ParsedResponse {
         boolean success;
         String message = "";
         WarehousesResult result;
+    }
+
+    private static class SearchParsed {
+        boolean success;
+        String message = "";
+        List<WarehouseItem> warehouses;
     }
 }

@@ -28,9 +28,32 @@ public class WarehouseSelectAdapter extends RecyclerView.Adapter<WarehouseSelect
     }
 
     public void submitList(List<WarehouseItem> warehouses) {
+        replaceItems(warehouses, true);
+    }
+
+    /** Arama sonucu: sunucunun dondurdugu sira korunur. */
+    public void submitSearchResults(List<WarehouseItem> warehouses) {
+        replaceItems(warehouses, false);
+    }
+
+    private void replaceItems(List<WarehouseItem> warehouses, boolean sort) {
+        WarehouseItem selected = getSelected();
         items.clear();
+        selectedIndex = -1;
         if (warehouses != null) {
-            items.addAll(WarehouseItem.sortedForDisplay(warehouses));
+            if (sort) {
+                items.addAll(WarehouseItem.sortedForDisplay(warehouses));
+            } else {
+                items.addAll(warehouses);
+            }
+        }
+        if (selected != null) {
+            for (int i = 0; i < items.size(); i++) {
+                if (equalsWarehouse(items.get(i), selected)) {
+                    selectedIndex = i;
+                    break;
+                }
+            }
         }
         notifyDataSetChanged();
     }

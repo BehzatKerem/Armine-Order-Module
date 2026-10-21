@@ -40,6 +40,19 @@
             android:exported="false" />
 
         <activity
+            android:name=".WarehouseTransferListActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".WarehouseTransferActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".WarehouseTransferScanActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".CustomersActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />

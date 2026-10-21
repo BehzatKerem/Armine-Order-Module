@@ -45,7 +45,7 @@ public class MainActivity extends AppCompatActivity {
         MaterialButton btnCustomers = findViewById(R.id.btnCustomers);
         MaterialButton btnWarehouses = findViewById(R.id.btnWarehouses);
         MaterialButton btnWholesaleOrder = findViewById(R.id.btnWholesaleOrder);
-        MaterialButton btnInventory = findViewById(R.id.btnInventory);
+        MaterialButton btnWarehouseTransfer = findViewById(R.id.btnWarehouseTransfer);
         MaterialButton btnRfidCounting = findViewById(R.id.btnRfidCounting);
         MaterialButton btnRfidScan = findViewById(R.id.btnRfidScan);
         dotRfidStatus = findViewById(R.id.dotRfidStatus);
@@ -58,7 +58,7 @@ public class MainActivity extends AppCompatActivity {
         setupPressableMenuButton(btnCustomers);
         setupPressableMenuButton(btnWarehouses);
         setupPressableMenuButton(btnWholesaleOrder);
-        setupPressableMenuButton(btnInventory);
+        setupPressableMenuButton(btnWarehouseTransfer);
         setupPressableMenuButton(btnRfidCounting);
         setupPressableMenuButton(btnRfidScan);
 
@@ -69,8 +69,8 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(new Intent(this, WarehousesActivity.class)));
         btnWholesaleOrder.setOnClickListener(v ->
                 startActivity(new Intent(this, WholesaleOrderListActivity.class)));
-        btnInventory.setOnClickListener(v ->
-                startActivity(new Intent(this, InventoryListActivity.class)));
+        btnWarehouseTransfer.setOnClickListener(v ->
+                startActivity(new Intent(this, WarehouseTransferListActivity.class)));
         btnRfidCounting.setOnClickListener(v ->
                 startActivity(new Intent(this, RfidHandheldCountingStartActivity.class)));
         btnRfidScan.setOnClickListener(v ->
