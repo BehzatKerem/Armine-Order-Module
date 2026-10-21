@@ -22,6 +22,7 @@ public class ProfileActivity extends AppCompatActivity {
         TextView tvUsername = findViewById(R.id.tvProfileUsername);
         TextView tvEmail = findViewById(R.id.tvProfileEmail);
         TextView tvDatabase = findViewById(R.id.tvProfileDatabase);
+        TextView tvVersion = findViewById(R.id.tvProfileVersion);
         MaterialButton btnLogout = findViewById(R.id.btnLogout);
 
         String username = AuthPreferences.getUserName(this);
@@ -31,6 +32,7 @@ public class ProfileActivity extends AppCompatActivity {
         tvUsername.setText(TextUtils.isEmpty(username) ? "-" : username);
         tvEmail.setText(TextUtils.isEmpty(email) ? "-" : email);
         tvDatabase.setText(TextUtils.isEmpty(database) ? "-" : database);
+        tvVersion.setText(getString(R.string.profile_version, BuildConfig.VERSION_NAME));
 
         btnBack.setOnClickListener(v -> finish());
 

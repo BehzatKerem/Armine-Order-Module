@@ -3,6 +3,17 @@ plugins {
     alias(libs.plugins.android.application)
 }
 
+val releaseKeystoreFile = System.getenv("KEYSTORE_FILE")
+val releaseStorePassword = System.getenv("KEYSTORE_PASSWORD")
+val releaseKeyAlias = System.getenv("KEY_ALIAS")
+val releaseKeyPassword = System.getenv("KEY_PASSWORD")
+val hasReleaseKeystore = listOf(
+    releaseKeystoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.example.armineordermodule"
     compileSdk {
@@ -20,11 +31,26 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        // GitHub Action bu dört ortam değişkenini secret'lardan doldurur.
+        // Yerelde yoksa release derlemesi debug anahtarıyla imzalanır.
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = file(releaseKeystoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // Fiziksel el terminaline kurulum için debug anahtarıyla imzala.
-            // Play Store / kurumsal dağıtımdan önce gerçek keystore ile değiştirilmeli.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

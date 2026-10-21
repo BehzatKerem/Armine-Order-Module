@@ -102,6 +102,19 @@
             android:textSize="17sp"
             app:backgroundTint="@color/login_primary"
             app:cornerRadius="8dp" />
+
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/tvProfileVersion"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textColor="@color/login_subtitle"
+            android:textSize="13sp" />
     </LinearLayout>
 
 </LinearLayout>
