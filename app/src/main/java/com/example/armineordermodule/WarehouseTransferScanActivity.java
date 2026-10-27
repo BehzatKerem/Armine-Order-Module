@@ -10,6 +10,8 @@ import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.OnBackPressedCallback;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -59,6 +61,11 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     private FloatingActionButton fabTransferActions;
     private View rowSave;
     private View rowSaveAndSend;
+    private View rowCancelBarcode;
+    private AlertDialog cancelScanDialog;
+    private RfidHandheldCountingEpcAdapter cancelEpcAdapter;
+    private TextView tvCancelEpcStatus;
+    private TextView tvCancelEpcEmpty;
 
     private final Object scanLock = new Object();
     private String transferGuid;
@@ -74,7 +81,9 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     private boolean sending;
     private final List<String> epcs = new ArrayList<>();
     private final Set<String> acceptedEpcs = new LinkedHashSet<>();
+    private final LinkedHashSet<String> pendingCancelEpcs = new LinkedHashSet<>();
     private boolean isScanning = false;
+    private boolean cancelScanMode = false;
     private boolean fabExpanded = false;
 
     @Override
@@ -94,8 +103,10 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         fabTransferActions = findViewById(R.id.fabTransferActions);
         rowSave = findViewById(R.id.rowSave);
         rowSaveAndSend = findViewById(R.id.rowSaveAndSend);
+        rowCancelBarcode = findViewById(R.id.rowCancelBarcode);
         FloatingActionButton fabSave = findViewById(R.id.fabSave);
         FloatingActionButton fabSaveAndSend = findViewById(R.id.fabSaveAndSend);
+        FloatingActionButton fabCancelBarcode = findViewById(R.id.fabCancelBarcode);
 
         epcAdapter = new RfidHandheldCountingEpcAdapter();
         rvEpcs.setLayoutManager(new LinearLayoutManager(this));
@@ -114,10 +125,20 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         tvTransferRoute.setText(getString(
                 R.string.warehouse_transfer_scan_route, sourceDescription, targetDescription));
 
-        btnBack.setOnClickListener(v -> finish());
+        btnBack.setOnClickListener(v -> requestLeaveScanScreen());
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                requestLeaveScanScreen();
+            }
+        });
         fabTransferActions.setOnClickListener(v -> setFabMenuExpanded(!fabExpanded));
         fabSave.setOnClickListener(v -> saveDraft());
         fabSaveAndSend.setOnClickListener(v -> saveAndSend());
+        fabCancelBarcode.setOnClickListener(v -> {
+            setFabMenuExpanded(false);
+            showCancelBarcodeDialog();
+        });
 
         renderEpcs();
         updateRfidUi();
@@ -219,6 +240,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        dismissCancelScanDialog(false);
         if (isScanning) {
             RfidConnectionManager.stopInventoryAsync(null);
         }
@@ -230,7 +252,11 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         Log.d(TRIGGER_LOG_TAG, "keyCode=" + keyCode);
         if (TRIGGER_KEY_CODES.contains(keyCode)) {
             if (event != null && event.getRepeatCount() == 0 && rfidManager.isConnected()) {
-                if (RfidPreferences.isPressAndHoldMode(this)) {
+                if (cancelScanMode) {
+                    if (!isScanning) {
+                        startScanning();
+                    }
+                } else if (RfidPreferences.isPressAndHoldMode(this)) {
                     if (!isScanning) {
                         startScanning();
                     }
@@ -246,7 +272,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
         if (TRIGGER_KEY_CODES.contains(keyCode)) {
-            if (isScanning && RfidPreferences.isPressAndHoldMode(this)) {
+            if (isScanning && !cancelScanMode && RfidPreferences.isPressAndHoldMode(this)) {
                 stopScanning();
             }
             return true;
@@ -255,6 +281,9 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     }
 
     private void toggleScanning() {
+        if (cancelScanMode) {
+            return;
+        }
         if (isScanning) {
             stopScanning();
             return;
@@ -267,7 +296,9 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         RfidConnectionManager.connectAsync(this, result -> {
             updateRfidUi();
             if (result instanceof com.example.armineordermodule.rfid.ConnectResult.Success) {
-                startScanning();
+                if (!cancelScanMode) {
+                    startScanning();
+                }
             } else {
                 showError(getString(R.string.inventory_rfid_connect_failed));
             }
@@ -278,7 +309,12 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     private void startScanning() {
         RfidConnectionManager.startInventoryAsync(
                 this,
-                tag -> handleLiveTagRead(tag.getEpcId()),
+                tag -> {
+                    if (cancelScanMode) {
+                        return handleCancelScanTag(tag.getEpcId());
+                    }
+                    return handleLiveTagRead(tag.getEpcId());
+                },
                 () -> Unit.INSTANCE,
                 started -> {
                     if (started) {
@@ -291,6 +327,9 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     }
 
     private boolean handleLiveTagRead(String epc) {
+        if (cancelScanMode) {
+            return handleCancelScanTag(epc);
+        }
         if (TextUtils.isEmpty(epc)) {
             return false;
         }
@@ -320,6 +359,174 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             isScanning = false;
             return Unit.INSTANCE;
         });
+    }
+
+    private boolean handleCancelScanTag(String epc) {
+        runOnUiThread(() -> addToPendingCancelList(epc));
+        return false;
+    }
+
+    private void addToPendingCancelList(String epcRaw) {
+        if (!cancelScanMode) {
+            return;
+        }
+        String epc = epcRaw != null ? epcRaw.trim() : "";
+        if (TextUtils.isEmpty(epc) || pendingCancelEpcs.contains(epc)) {
+            return;
+        }
+
+        boolean inList;
+        synchronized (scanLock) {
+            inList = acceptedEpcs.contains(epc);
+        }
+        if (!inList) {
+            showCancelScanStatus(getString(R.string.warehouse_transfer_delete_not_found));
+            return;
+        }
+
+        pendingCancelEpcs.add(epc);
+        renderCancelList();
+        clearCancelScanStatus();
+        RfidConnectionManager.playBeep();
+    }
+
+    private void showCancelBarcodeDialog() {
+        if (cancelScanDialog != null && cancelScanDialog.isShowing()) {
+            return;
+        }
+        cancelScanMode = true;
+        pendingCancelEpcs.clear();
+        if (isScanning) {
+            RfidConnectionManager.stopInventoryAsync(() -> {
+                isScanning = false;
+                openCancelScanDialog();
+                return Unit.INSTANCE;
+            });
+            return;
+        }
+        openCancelScanDialog();
+    }
+
+    private void openCancelScanDialog() {
+        cancelScanMode = true;
+        pendingCancelEpcs.clear();
+
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_wholesale_order_cancel_epc, null);
+        tvCancelEpcStatus = dialogView.findViewById(R.id.tvCancelEpcStatus);
+        tvCancelEpcEmpty = dialogView.findViewById(R.id.tvCancelEpcEmpty);
+        RecyclerView rvCancelEpcs = dialogView.findViewById(R.id.rvCancelEpcs);
+
+        cancelEpcAdapter = new RfidHandheldCountingEpcAdapter();
+        rvCancelEpcs.setLayoutManager(new LinearLayoutManager(this));
+        rvCancelEpcs.setAdapter(cancelEpcAdapter);
+        renderCancelList();
+
+        cancelScanDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.warehouse_transfer_cancel_barcode)
+                .setView(dialogView)
+                .setPositiveButton(R.string.warehouse_transfer_cancel_barcode_confirm, null)
+                .setNegativeButton(R.string.warehouse_transfer_cancel_barcode_back,
+                        (dialog, which) -> dismissCancelScanDialog(true))
+                .setOnCancelListener(dialog -> dismissCancelScanDialog(true))
+                .setCancelable(true)
+                .create();
+        cancelScanDialog.setCanceledOnTouchOutside(false);
+        cancelScanDialog.setOnShowListener(dialog -> {
+            cancelScanDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
+                    v -> confirmCancelDeletes());
+            if (rfidManager.isConnected() && !isScanning) {
+                startScanning();
+            }
+        });
+        cancelScanDialog.show();
+    }
+
+    private void confirmCancelDeletes() {
+        if (!cancelScanMode) {
+            return;
+        }
+        if (pendingCancelEpcs.isEmpty()) {
+            showCancelScanStatus(getString(R.string.warehouse_transfer_cancel_barcode_delete_empty));
+            return;
+        }
+
+        int removedCount = 0;
+        synchronized (scanLock) {
+            for (String epc : pendingCancelEpcs) {
+                if (acceptedEpcs.remove(epc)) {
+                    epcs.remove(epc);
+                    removedCount++;
+                }
+            }
+        }
+        if (removedCount <= 0) {
+            showCancelScanStatus(getString(R.string.warehouse_transfer_delete_not_found));
+            return;
+        }
+
+        pendingCancelEpcs.clear();
+        renderEpcs();
+        Toast.makeText(this,
+                getString(R.string.warehouse_transfer_delete_success) + " (" + removedCount + ")",
+                Toast.LENGTH_SHORT).show();
+
+        if (isScanning) {
+            RfidConnectionManager.stopInventoryAsync(() -> {
+                isScanning = false;
+                dismissCancelScanDialog(false);
+                return Unit.INSTANCE;
+            });
+        } else {
+            dismissCancelScanDialog(false);
+        }
+    }
+
+    private void renderCancelList() {
+        if (cancelEpcAdapter == null) {
+            return;
+        }
+        cancelEpcAdapter.submitList(new ArrayList<>(pendingCancelEpcs));
+        if (tvCancelEpcEmpty != null) {
+            tvCancelEpcEmpty.setVisibility(pendingCancelEpcs.isEmpty() ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void dismissCancelScanDialog(boolean cancelled) {
+        cancelScanMode = false;
+        pendingCancelEpcs.clear();
+        tvCancelEpcStatus = null;
+        tvCancelEpcEmpty = null;
+        cancelEpcAdapter = null;
+        if (cancelScanDialog != null) {
+            if (cancelScanDialog.isShowing()) {
+                cancelScanDialog.dismiss();
+            }
+            cancelScanDialog = null;
+        }
+        if (isScanning) {
+            RfidConnectionManager.stopInventoryAsync(() -> {
+                isScanning = false;
+                return Unit.INSTANCE;
+            });
+        }
+        if (cancelled) {
+            Toast.makeText(this, R.string.warehouse_transfer_delete_cancelled, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showCancelScanStatus(String message) {
+        if (tvCancelEpcStatus == null) {
+            return;
+        }
+        tvCancelEpcStatus.setText(message);
+        tvCancelEpcStatus.setVisibility(View.VISIBLE);
+    }
+
+    private void clearCancelScanStatus() {
+        if (tvCancelEpcStatus != null) {
+            tvCancelEpcStatus.setVisibility(View.GONE);
+            tvCancelEpcStatus.setText("");
+        }
     }
 
     private void renderEpcs() {
@@ -458,11 +665,54 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         }
     }
 
+    private void requestLeaveScanScreen() {
+        if (hasUnsavedScans()) {
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.warehouse_transfer_unsaved_title)
+                    .setMessage(R.string.warehouse_transfer_unsaved_message)
+                    .setPositiveButton(R.string.warehouse_transfer_unsaved_stay, null)
+                    .setNegativeButton(R.string.warehouse_transfer_unsaved_leave,
+                            (dialog, which) -> leaveScanScreen())
+                    .show();
+            return;
+        }
+        leaveScanScreen();
+    }
+
+    /** Kaydedilmiş liste ile ekrandaki okutma aynıysa çıkışta veri kaybı yoktur. */
+    private boolean hasUnsavedScans() {
+        List<String> current;
+        synchronized (scanLock) {
+            if (epcs.isEmpty()) {
+                return false;
+            }
+            current = new ArrayList<>(epcs);
+        }
+        WarehouseTransfer stored = WarehouseTransferStore.findByGuid(this, transferGuid);
+        if (stored == null) {
+            return true;
+        }
+        return !stored.epcs.equals(current);
+    }
+
+    private void leaveScanScreen() {
+        if (isScanning) {
+            RfidConnectionManager.stopInventoryAsync(() -> {
+                isScanning = false;
+                runOnUiThread(this::finish);
+                return Unit.INSTANCE;
+            });
+            return;
+        }
+        finish();
+    }
+
     private void setFabMenuExpanded(boolean expanded) {
         fabExpanded = expanded;
         fabTransferActions.animate().rotation(expanded ? 45f : 0f).setDuration(150).start();
         animateFabRow(rowSave, expanded);
         animateFabRow(rowSaveAndSend, expanded);
+        animateFabRow(rowCancelBarcode, expanded);
     }
 
     private void animateFabRow(View row, boolean expanded) {

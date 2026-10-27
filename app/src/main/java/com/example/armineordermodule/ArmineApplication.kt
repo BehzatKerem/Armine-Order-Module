@@ -24,6 +24,7 @@ class ArmineApplication : Application() {
 
         AppUpdateChecker.start()
 
+        RfidPreferences.enableAutoConnectOnce(this)
         if (RfidPreferences.isRfidEnabled(this)) {
             RfidConnectionManager.autoReconnectIfNeededAsync(this) { result ->
                 if (result is ConnectResult.Failure) {

@@ -103,8 +103,10 @@ class RfidScanActivity : AppCompatActivity() {
 
         RfidConnectionManager.connectAsync(this) { result ->
             when (result) {
-                is ConnectResult.Success ->
+                is ConnectResult.Success -> {
                     Toast.makeText(this, R.string.rfid_connected, Toast.LENGTH_SHORT).show()
+                    RfidPreferences.setRfidEnabled(this, true)
+                }
                 is ConnectResult.Failure ->
                     showError(getString(R.string.rfid_connect_failed, result.reason))
             }

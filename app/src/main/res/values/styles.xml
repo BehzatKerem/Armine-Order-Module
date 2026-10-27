@@ -15,6 +15,9 @@
         <item name="android:textColor">@color/login_title</item>
         <item name="android:letterSpacing">0</item>
         <item name="android:stateListAnimator">@animator/menu_button_state_list_anim</item>
+        <item name="android:outlineProvider">background</item>
+        <item name="android:outlineSpotShadowColor">#261E3A5F</item>
+        <item name="android:outlineAmbientShadowColor">#141E3A5F</item>
         <item name="backgroundTint">@color/white</item>
         <item name="cornerRadius">18dp</item>
         <item name="strokeColor">@color/menu_card_stroke</item>

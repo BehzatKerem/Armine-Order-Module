@@ -27,6 +27,17 @@
     <string name="warehouse_transfer_scan_empty">Henüz ürün okutulmadı.</string>
     <string name="warehouse_transfer_total_products">Toplam ürün: %1$d</string>
     <string name="warehouse_transfer_actions">Transfer işlemleri</string>
+    <string name="warehouse_transfer_cancel_barcode">İptal Barkod</string>
+    <string name="warehouse_transfer_cancel_barcode_confirm">Sil</string>
+    <string name="warehouse_transfer_cancel_barcode_back">Geri</string>
+    <string name="warehouse_transfer_cancel_barcode_delete_empty">Silmek için en az bir EPC okutun.</string>
+    <string name="warehouse_transfer_delete_not_found">Bu EPC listede yok.</string>
+    <string name="warehouse_transfer_delete_success">EPC silindi</string>
+    <string name="warehouse_transfer_delete_cancelled">Silme iptal edildi</string>
+    <string name="warehouse_transfer_unsaved_title">Kaydetmeden çık</string>
+    <string name="warehouse_transfer_unsaved_message">Okutulmuş ürünler var. Kaydetmeden çıkarsanız bu okutmalar kaybolur.</string>
+    <string name="warehouse_transfer_unsaved_stay">Kal</string>
+    <string name="warehouse_transfer_unsaved_leave">Kaydetmeden çık</string>
     <string name="warehouse_transfer_save">Kaydet</string>
     <string name="warehouse_transfer_save_and_send">Kaydet ve Gönder</string>
     <string name="warehouse_transfer_saved">Transfer Nebim\'e gönderilmedi. Cihazda kaydedildi.</string>
