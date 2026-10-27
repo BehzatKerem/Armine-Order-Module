@@ -34,6 +34,7 @@ public class MainActivity extends AppCompatActivity {
 
     private View dotRfidStatus;
     private TextView tvRfidStatus;
+    private MaterialButton btnAppUpdate;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -50,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
         MaterialButton btnRfidScan = findViewById(R.id.btnRfidScan);
         dotRfidStatus = findViewById(R.id.dotRfidStatus);
         tvRfidStatus = findViewById(R.id.tvRfidStatus);
+        btnAppUpdate = findViewById(R.id.btnAppUpdate);
 
         btnProfile.setOnClickListener(v ->
                 startActivity(new Intent(this, ProfileActivity.class)));
@@ -75,6 +77,18 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(new Intent(this, RfidHandheldCountingStartActivity.class)));
         btnRfidScan.setOnClickListener(v ->
                 startActivity(new Intent(this, RfidScanActivity.class)));
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        AppUpdateButton.attach(this, btnAppUpdate);
+    }
+
+    @Override
+    protected void onStop() {
+        AppUpdateButton.detach(btnAppUpdate);
+        super.onStop();
     }
 
     @Override

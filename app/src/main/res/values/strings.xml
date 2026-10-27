@@ -2,8 +2,9 @@
     <string name="app_name">Armine Order Module</string>
     <string name="default_screen_title">Ana Menu</string>
     <string name="default_screen_subtitle">Giris basarili</string>
-    <string name="main_menu_header">Siparis Modulu</string>
-    <string name="main_menu_subtitle">Menu yakinda eklenecek</string>
+    <string name="main_menu_header">Armine</string>
+    <string name="main_menu_subtitle">Siparis ve depo islemleri</string>
+    <string name="login_brand">Armine</string>
     <string name="menu_products">Urunler</string>
     <string name="menu_customers">Musteriler</string>
     <string name="menu_warehouses">Depolarim</string>
@@ -243,6 +244,10 @@
     <string name="profile_database_label">Varsayilan veritabani</string>
     <string name="profile_logout">Cikis Yap</string>
     <string name="profile_version">Surum %1$s</string>
+    <string name="update_button">Guncelle (%1$s)</string>
+    <string name="update_downloading">Indiriliyor…</string>
+    <string name="update_failed">Guncelleme indirilemedi</string>
+    <string name="update_install_permission">Guncellemeyi kurmak icin bu uygulamaya izin verin, sonra Guncelle\'ye tekrar basin</string>
 
     <string name="warehouses_title">Depolarim</string>
     <string name="warehouses_update_defaults">Varsayilan Depolari Guncelle</string>

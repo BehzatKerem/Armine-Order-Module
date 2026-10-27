@@ -10,19 +10,40 @@
         <item name="android:paddingTop">20dp</item>
         <item name="android:paddingBottom">20dp</item>
         <item name="android:textAllCaps">false</item>
-        <item name="android:textSize">15sp</item>
+        <item name="android:textSize">16sp</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/login_title</item>
         <item name="android:letterSpacing">0</item>
         <item name="android:stateListAnimator">@animator/menu_button_state_list_anim</item>
         <item name="backgroundTint">@color/white</item>
-        <item name="cornerRadius">16dp</item>
-        <item name="strokeColor">@color/black</item>
+        <item name="cornerRadius">18dp</item>
+        <item name="strokeColor">@color/menu_card_stroke</item>
         <item name="strokeWidth">1dp</item>
         <item name="iconGravity">textTop</item>
-        <item name="iconPadding">14dp</item>
-        <item name="iconSize">36dp</item>
+        <item name="iconPadding">12dp</item>
+        <item name="iconSize">40dp</item>
         <item name="iconTint">@color/login_primary</item>
         <item name="rippleColor">#221E3A5F</item>
+    </style>
+
+    <style name="Widget.Armine.PrimaryButton" parent="Widget.MaterialComponents.Button">
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:letterSpacing">0.01</item>
+        <item name="android:textColor">@color/white</item>
+        <item name="android:minHeight">52dp</item>
+        <item name="backgroundTint">@color/login_primary</item>
+        <item name="cornerRadius">12dp</item>
+    </style>
+
+    <style name="Widget.Armine.TextInput" parent="Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+        <item name="boxCornerRadiusTopStart">12dp</item>
+        <item name="boxCornerRadiusTopEnd">12dp</item>
+        <item name="boxCornerRadiusBottomStart">12dp</item>
+        <item name="boxCornerRadiusBottomEnd">12dp</item>
+        <item name="boxStrokeColor">@color/login_primary</item>
+        <item name="hintTextColor">@color/login_primary</item>
     </style>
 </resources>

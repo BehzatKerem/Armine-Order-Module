@@ -15,9 +15,12 @@
     <color name="login_error">#FFB00020</color>
     <color name="rfid_status_connected">#FF2E7D32</color>
 
-    <color name="menu_card_stroke">#FFE8ECF1</color>
+    <color name="menu_card_stroke">#FFE3E8EF</color>
     <color name="menu_icon_bg_products">#FF1E3A5F</color>
     <color name="menu_icon_bg_customers">#FF2F6F8F</color>
     <color name="menu_icon_bg_warehouses">#FF3D6B5A</color>
     <color name="menu_icon_bg_order">#FF8B5E3C</color>
+    <color name="menu_icon_bg_transfer">#FF5C4D86</color>
+    <color name="menu_icon_bg_rfid">#FF1F6F78</color>
+    <color name="surface_card">#FFFFFFFF</color>
 </resources>

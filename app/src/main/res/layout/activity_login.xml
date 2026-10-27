@@ -24,9 +24,9 @@
                 android:id="@+id/tvAppTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/app_name"
-                android:textColor="@color/login_title"
-                android:textSize="26sp"
+                android:text="@string/login_brand"
+                android:textColor="@color/login_primary"
+                android:textSize="32sp"
                 android:textStyle="bold"
                 android:gravity="center" />
 
@@ -34,21 +34,29 @@
                 android:id="@+id/tvLoginSubtitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="6dp"
                 android:text="@string/login_subtitle"
                 android:textColor="@color/login_subtitle"
                 android:textSize="15sp"
                 android:gravity="center" />
 
-            <com.google.android.material.textfield.TextInputLayout
-                android:id="@+id/tilUsername"
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="40dp"
-                android:hint="@string/login_username"
-                app:boxStrokeColor="@color/login_primary"
-                app:hintTextColor="@color/login_primary">
+                android:layout_marginTop="28dp"
+                android:background="@drawable/bg_surface_card"
+                android:orientation="vertical"
+                android:paddingStart="18dp"
+                android:paddingTop="20dp"
+                android:paddingEnd="18dp"
+                android:paddingBottom="20dp">
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilUsername"
+                style="@style/Widget.Armine.TextInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="@string/login_username">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etUsername"
@@ -63,13 +71,11 @@
 
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/tilPassword"
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                style="@style/Widget.Armine.TextInput"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="14dp"
                 android:hint="@string/login_password"
-                app:boxStrokeColor="@color/login_primary"
-                app:hintTextColor="@color/login_primary"
                 app:endIconMode="password_toggle">
 
                 <com.google.android.material.textfield.TextInputEditText
@@ -85,14 +91,11 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnLogin"
+                style="@style/Widget.Armine.PrimaryButton"
                 android:layout_width="match_parent"
-                android:layout_height="56dp"
-                android:layout_marginTop="28dp"
-                android:text="@string/login_button"
-                android:textAllCaps="false"
-                android:textSize="17sp"
-                app:backgroundTint="@color/login_primary"
-                app:cornerRadius="8dp" />
+                android:layout_height="52dp"
+                android:layout_marginTop="18dp"
+                android:text="@string/login_button" />
 
             <TextView
                 android:id="@+id/tvLoginError"
@@ -103,6 +106,16 @@
                 android:textColor="@color/login_error"
                 android:textSize="14sp"
                 android:visibility="gone" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnAppUpdate"
+                style="@style/Widget.Armine.PrimaryButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="12dp"
+                android:visibility="gone" />
+
+            </LinearLayout>
 
         </LinearLayout>
     </ScrollView>
@@ -131,11 +144,11 @@
 
         <ImageButton
             android:id="@+id/btnServerSettings"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_icon_button"
             android:contentDescription="@string/server_settings_title"
-            android:padding="4dp"
+            android:padding="7dp"
             android:scaleType="centerInside"
             android:src="@drawable/ic_settings" />
     </LinearLayout>

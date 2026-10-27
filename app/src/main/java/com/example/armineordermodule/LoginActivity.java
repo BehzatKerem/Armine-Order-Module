@@ -22,6 +22,7 @@ public class LoginActivity extends AppCompatActivity {
     private MaterialButton btnLogin;
     private TextView tvLoginError;
     private TextView tvServerUrl;
+    private MaterialButton btnAppUpdate;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,11 +42,28 @@ public class LoginActivity extends AppCompatActivity {
         btnLogin = findViewById(R.id.btnLogin);
         tvLoginError = findViewById(R.id.tvLoginError);
         tvServerUrl = findViewById(R.id.tvServerUrl);
+        btnAppUpdate = findViewById(R.id.btnAppUpdate);
         ImageButton btnServerSettings = findViewById(R.id.btnServerSettings);
 
         btnLogin.setOnClickListener(v -> attemptLogin());
         btnServerSettings.setOnClickListener(v ->
                 startActivity(new Intent(this, ServerSettingsActivity.class)));
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (btnAppUpdate != null) {
+            AppUpdateButton.attach(this, btnAppUpdate);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        if (btnAppUpdate != null) {
+            AppUpdateButton.detach(btnAppUpdate);
+        }
+        super.onStop();
     }
 
     @Override

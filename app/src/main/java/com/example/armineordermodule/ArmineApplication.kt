@@ -22,6 +22,8 @@ class ArmineApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        AppUpdateChecker.start()
+
         if (RfidPreferences.isRfidEnabled(this)) {
             RfidConnectionManager.autoReconnectIfNeededAsync(this) { result ->
                 if (result is ConnectResult.Failure) {
