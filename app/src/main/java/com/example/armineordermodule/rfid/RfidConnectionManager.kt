@@ -8,20 +8,27 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Uygulama genelinde **tek** bir [RfidManager] örneğini yaşatır ve tüm SDK erişimini
- * tek bir arka plan thread'inde seri hale getirir.
+ * Uygulamanin RFID'ye tek giris noktasi. Ekranlar hangi el terminalinde calistigini bilmez;
+ * cihaza ozel her sey [RfidReader] surucelerinde kalir:
  *
- * Neden gerekli: Aynı anda birden fazla `RfidManager`'ın aynı seri porta
- * (`/dev/ttyS3`) bağlanmaya çalışması çakışmaya yol açıyor (gerçek cihazda doğrulandı —
- * bkz. docs/RFID_SDK_ENTEGRASYON.md). Bu yüzden hem Sunucu Ayarları ekranındaki
- * "RFID" anahtarı hem de RFID Tarama (Test) ekranı bu tekil örneği paylaşır.
+ * ```
+ * Ekranlar ──► RfidConnectionManager ──► RfidReader
+ *              (tek ornek, tek thread)     ├─ BldRfidReader      (lcrrgxmodule-release.aar)
+ *                                          └─ ChainwayRfidReader (Keyboard Emulator broadcast)
+ * ```
  *
- * Bağlantı yaşam döngüsü:
- * - Uygulama process'i başlarken RFID anahtarı açıksa ([ArmineApplication]) otomatik bağlanır.
- * - Sunucu Ayarları'nda RFID anahtarı açılıp "Kaydet"e basılınca [connectAsync] çağrılır.
- * - Kullanıcı çıkış yapınca ([ProfileActivity]) [disconnectAsync] çağrılır.
- * - RFID Tarama (Test) ekranı da kendi Bağlan/Bağlantıyı Kes butonlarıyla aynı
- *   paylaşılan örneği kullanır (yani ekranlardan biri bağlanırsa diğeri de "Bağlı" görür).
+ * - Surucu [RfidDeviceDetector.resolve] ile secilir (ayardaki elle secim, yoksa otomatik tespit).
+ * - Tum surucu cagrilari tek bir arka plan thread'inde sirayla calisir. Ayni seri porta iki
+ *   baglanti acilmasini boyle engelliyoruz (BLD cihazinda dogrulandi).
+ * - Callback'ler ana thread'de cagrilir. Etiket callback'i ([RfidTagListener]) haric:
+ *   o, okuyucunun arka plan thread'inden gelir.
+ *
+ * Yasam dongusu:
+ * - [init]: [com.example.armineordermodule.ArmineApplication] icinde, her seyden once.
+ * - Acilista ve ekranlar on plana geldiginde [autoReconnectIfNeededAsync].
+ * - Sunucu Ayarlari'nda kaydedince [connectWithRetryAsync] / [disconnectAsync]; cihaz tipi
+ *   degisirse [reloadReaderAsync].
+ * - Cikis yapinca [disconnectAsync].
  */
 object RfidConnectionManager {
 
@@ -29,206 +36,196 @@ object RfidConnectionManager {
     private const val CONNECT_RETRY_ATTEMPTS = 3
     private const val CONNECT_RETRY_DELAY_MS = 1500L
 
-    private val executor = Executors.newSingleThreadExecutor()
+    private val executor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "rfid-io").apply { isDaemon = true }
+    }
     private val mainHandler = Handler(Looper.getMainLooper())
-
-    @Volatile
-    private var manager: RfidManager? = null
-
-    /** [autoReconnectIfNeededAsync] cagrilarinin ust uste binmesini (ayni anda birden fazla
-     * yeniden deneme zincirinin kuyruklanmasini) engellemek icin kullanilir. */
     private val autoReconnecting = AtomicBoolean(false)
 
+    @Volatile
+    private var appContext: Context? = null
+
+    @Volatile
+    private var reader: RfidReader? = null
+
     @JvmStatic
-    @Synchronized
-    fun getManager(context: Context): RfidManager {
-        return manager ?: RfidManager(context.applicationContext).also { manager = it }
+    fun init(context: Context) {
+        appContext = context.applicationContext
+        RfidFeedback.init(context)
     }
+
+    @Synchronized
+    private fun requireReader(): RfidReader {
+        reader?.let { return it }
+        val context = checkNotNull(appContext) { "RfidConnectionManager.init() cagrilmadi" }
+        val type = RfidDeviceDetector.resolve(context)
+        Log.i(TAG, "RFID surucusu: $type")
+        return RfidDeviceDetector.createReader(context, type).also { reader = it }
+    }
+
+    // --- Durum ---
 
     @JvmStatic
     val isConnected: Boolean
-        get() = manager?.isConnected == true
+        get() = reader?.isConnected == true
+
+    @JvmStatic
+    val readerType: RfidReaderType
+        get() = requireReader().type
+
+    /** `true` ise tetik sadece basili tuttukca okur; Toggle tercihi uygulanmaz. */
+    @JvmStatic
+    val isHoldToReadOnly: Boolean
+        get() = requireReader().isHoldToReadOnly
+
+    @JvmStatic
+    fun isTriggerKey(keyCode: Int): Boolean = requireReader().isTriggerKey(keyCode)
+
+    /** Bkz. [RfidReader.setTriggerListener]. Ana thread'den cagrilir. */
+    @JvmStatic
+    fun setTriggerListener(listener: RfidTriggerListener?) {
+        requireReader().setTriggerListener(listener)
+    }
+
+    // --- Baglanti ---
 
     @JvmStatic
     @JvmOverloads
-    fun connectAsync(context: Context, onResult: ((ConnectResult) -> Unit)? = null) {
-        val rfidManager = getManager(context)
+    fun connectAsync(onResult: RfidCallback<ConnectResult>? = null) {
         executor.execute {
-            val result = rfidManager.connect()
-            if (result is ConnectResult.Failure) {
-                Log.w(TAG, "RFID baglanti hatasi: ${result.reason}")
-            }
-            onResult?.let { callback -> mainHandler.post { callback(result) } }
+            val result = connectOnce()
+            post(onResult, result)
         }
     }
 
     /**
-     * [connectAsync] ile ayni, ancak başarısız olursa otomatik olarak birkaç kez daha dener.
-     *
-     * Neden gerekli: Modül bazen ilk denemede hazır olmuyor (örn. cihaz henüz açılıyor,
-     * ya da önceki oturum `am force-stop` ile düzgün kapanmadığı için modül "sürekli okuma"
-     * modunda takılı kalmış olabilir — bkz. docs/RFID_SDK_ENTEGRASYON.md Bölüm 4.1). Bu
-     * yüzden her başarısız denemeden sonra [RfidManager.disconnect] ile bir "temizlik"
-     * (güç kapat) yapılıp kısa bir bekleme ile tekrar denenir; bu, takılı kalmış modülü
-     * sıfırlamaya yardımcı olur.
-     *
-     * Sadece [ArmineApplication] (uygulama açılışı) ve Sunucu Ayarları'ndaki "Kaydet"
-     * akışında kullanılır. RFID Tarama (Test) ekranındaki manuel "Bağlan" butonu, kullanıcı
-     * anında tekrar deneyebildiği için tek seferlik [connectAsync] kullanır.
+     * [connectAsync] ile ayni, ancak basarisiz olursa birkac kez daha dener. Her denemeden
+     * sonra [RfidReader.disconnect] ile temizlik yapilir: BLD'de bu, takili kalmis modulu
+     * guc kapatip acarak sifirlar (bkz. docs/RFID_SDK_ENTEGRASYON.md Bolum 4.1).
      */
     @JvmStatic
     @JvmOverloads
-    fun connectWithRetryAsync(context: Context, onResult: ((ConnectResult) -> Unit)? = null) {
-        connectWithRetryAsync(context, CONNECT_RETRY_ATTEMPTS, onResult)
-    }
-
-    /** [maxAttempts] parametresini özelleştirmek gerektiğinde (ör. testlerde) kullan. */
-    @JvmStatic
-    fun connectWithRetryAsync(
-        context: Context,
-        maxAttempts: Int,
-        onResult: ((ConnectResult) -> Unit)?,
-    ) {
-        val rfidManager = getManager(context)
+    fun connectWithRetryAsync(onResult: RfidCallback<ConnectResult>? = null) {
         executor.execute {
-            var result: ConnectResult = ConnectResult.Failure("Baglanti denenmedi")
-            for (attempt in 1..maxAttempts) {
-                result = rfidManager.connect()
-                if (result is ConnectResult.Success) {
-                    Log.i(TAG, "RFID baglantisi basarili (deneme $attempt/$maxAttempts)")
-                    break
-                }
-
-                val reason = (result as ConnectResult.Failure).reason
-                Log.w(TAG, "RFID baglanti denemesi basarisiz ($attempt/$maxAttempts): $reason")
-
-                if (attempt < maxAttempts) {
-                    // Takilan modulu sifirlamak icin guc kapat + kisa bekleme, sonra tekrar dene.
-                    runCatching { rfidManager.disconnect() }
-                    runCatching { Thread.sleep(CONNECT_RETRY_DELAY_MS) }
-                }
-            }
-            onResult?.let { callback -> mainHandler.post { callback(result) } }
+            val result = connectWithRetry(CONNECT_RETRY_ATTEMPTS)
+            post(onResult, result)
         }
     }
 
     /**
-     * "Sessiz" / fırsatçı yeniden bağlanma denemesi: [MainActivity] her ön plana geldiğinde
-     * (uygulama yeniden açılışı, çıkış yapıp tekrar giriş yapılışı, arka plandan geri dönüş)
-     * ve [ArmineApplication] process başlangıcında bunu çağırır.
-     *
-     * Neden ayrı bir fonksiyon: Bu tetikleyiciler kısa süre içinde üst üste ateşlenebilir
-     * (örn. process başlangıcında hem [ArmineApplication.onCreate] hem de ilk
-     * `MainActivity.onResume` çalışır, ya da kullanıcı ekranlar arasında hızla geçiş yapar).
-     * [connectWithRetryAsync]'i doğrudan her seferinde çağırmak, her biri kendi 3 deneme +
-     * güç-döngüsü zincirini kuyruğa alacağından toplam bağlanma süresini gereksiz uzatır.
-     * Zaten bağlıysa veya bir deneme zinciri devam ediyorsa bu fonksiyon sessizce çıkar;
-     * [ServerSettingsActivity]'deki "Kaydet" gibi kullanıcının doğrudan tetikledigi ve her
-     * zaman geri bildirim beklenen akışlar hâlâ [connectWithRetryAsync]'i doğrudan kullanır.
+     * Sessiz yeniden baglanma. Zaten bagliysa ya da bir deneme zinciri suruyorsa bir sey
+     * yapmaz; boylece pes pese gelen on plan olaylari deneme zincirlerini kuyruga yigmaz.
+     * Callback sadece gercekten deneme yapildiysa cagrilir.
      */
     @JvmStatic
     @JvmOverloads
-    fun autoReconnectIfNeededAsync(context: Context, onResult: ((ConnectResult) -> Unit)? = null) {
+    fun autoReconnectIfNeededAsync(onResult: RfidCallback<ConnectResult>? = null) {
         if (isConnected) {
             return
         }
         if (!autoReconnecting.compareAndSet(false, true)) {
-            Log.d(TAG, "Otomatik yeniden baglanma zaten devam ediyor, yeni deneme atlaniyor")
-            return
-        }
-        connectWithRetryAsync(context, CONNECT_RETRY_ATTEMPTS) { result ->
-            autoReconnecting.set(false)
-            onResult?.invoke(result)
-        }
-    }
-
-    @JvmStatic
-    @JvmOverloads
-    fun disconnectAsync(onDone: (() -> Unit)? = null) {
-        val rfidManager = manager
-        if (rfidManager == null) {
-            onDone?.let { mainHandler.post(it) }
+            Log.d(TAG, "Otomatik yeniden baglanma zaten devam ediyor")
             return
         }
         executor.execute {
-            rfidManager.disconnect()
-            onDone?.let { callback -> mainHandler.post(callback) }
-        }
-    }
-
-    @JvmStatic
-    @JvmOverloads
-    fun startInventoryAsync(
-        context: Context,
-        onTagRead: (RfidTag) -> Boolean,
-        onCrcError: () -> Unit = {},
-        onResult: ((Boolean) -> Unit)? = null,
-    ) {
-        val rfidManager = getManager(context)
-        executor.execute {
-            val started = rfidManager.startInventory(onTagRead, onCrcError)
-            onResult?.let { callback -> mainHandler.post { callback(started) } }
-        }
-    }
-
-    @JvmStatic
-    @JvmOverloads
-    fun stopInventoryAsync(onDone: (() -> Unit)? = null) {
-        val rfidManager = manager
-        if (rfidManager == null) {
-            onDone?.let { mainHandler.post(it) }
-            return
-        }
-        executor.execute {
-            rfidManager.stopInventory()
-            onDone?.let { callback -> mainHandler.post(callback) }
-        }
-    }
-
-    /** Uyari sesinin executor'da ust uste kuyruklanmasini engeller. */
-    private val duplicateWarningInFlight = AtomicBoolean(false)
-
-    /** Yeni urun kabulunde tek bip (SDK SoundPool / playSound). */
-    @JvmStatic
-    fun playBeep() {
-        val rfidManager = manager ?: return
-        executor.execute {
-            rfidManager.playBeep()
-        }
-    }
-
-    /** Baska sipariste kayitli EPC icin tek kisa yuksek sesli uyari. */
-    @JvmStatic
-    fun playDuplicateWarning() {
-        if (!duplicateWarningInFlight.compareAndSet(false, true)) {
-            return
-        }
-        val rfidManager = manager
-        executor.execute {
-            try {
-                if (rfidManager != null) {
-                    rfidManager.playDuplicateWarning()
-                } else {
-                    runCatching {
-                        val tone = android.media.ToneGenerator(
-                            android.media.AudioManager.STREAM_ALARM,
-                            100,
-                        )
-                        try {
-                            tone.startTone(
-                                android.media.ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD,
-                                250,
-                            )
-                            Thread.sleep(260L)
-                            tone.stopTone()
-                        } finally {
-                            runCatching { tone.release() }
-                        }
-                    }
-                }
+            val result = try {
+                connectWithRetry(CONNECT_RETRY_ATTEMPTS)
             } finally {
-                duplicateWarningInFlight.set(false)
+                autoReconnecting.set(false)
+            }
+            post(onResult, result)
+        }
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun disconnectAsync(onDone: Runnable? = null) {
+        val current = reader
+        executor.execute {
+            current?.let { runCatching { it.disconnect() } }
+            onDone?.let { mainHandler.post(it) }
+        }
+    }
+
+    /**
+     * Cihaz tipi ayari degistiginde cagrilir: mevcut surucu kapatilir ve sonraki erisimde
+     * yeni tip [RfidDeviceDetector.resolve] ile secilir.
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun reloadReaderAsync(onDone: Runnable? = null) {
+        executor.execute {
+            val old = synchronized(this) { reader.also { reader = null } }
+            old?.let {
+                runCatching { it.setTriggerListener(null) }
+                runCatching { it.disconnect() }
+            }
+            onDone?.let { mainHandler.post(it) }
+        }
+    }
+
+    // --- Okuma ---
+
+    @JvmStatic
+    @JvmOverloads
+    fun startInventoryAsync(listener: RfidTagListener, onResult: RfidCallback<Boolean>? = null) {
+        executor.execute {
+            val current = requireReader()
+            val started = current.isConnected && runCatching { current.startInventory(listener) }
+                .onFailure { Log.w(TAG, "startInventory istisna", it) }
+                .getOrDefault(false)
+            post(onResult, started)
+        }
+    }
+
+    @JvmStatic
+    @JvmOverloads
+    fun stopInventoryAsync(onDone: Runnable? = null) {
+        val current = reader
+        executor.execute {
+            current?.let { runCatching { it.stopInventory() } }
+            onDone?.let { mainHandler.post(it) }
+        }
+    }
+
+    // --- Ses ---
+
+    /** Yeni urun / etiket kabulunde tek bip. */
+    @JvmStatic
+    fun playBeep() = RfidFeedback.playBeep()
+
+    /** Baska kayitta bulunan EPC icin tek kisa yuksek sesli uyari. */
+    @JvmStatic
+    fun playDuplicateWarning() = RfidFeedback.playWarning()
+
+    // --- Ic yardimcilar (executor thread'inde) ---
+
+    private fun connectOnce(): ConnectResult {
+        val result = runCatching { requireReader().connect() }
+            .getOrElse { ConnectResult.Failure("Baglanti istisnasi: ${it.message}") }
+        if (result is ConnectResult.Failure) {
+            Log.w(TAG, "RFID baglanti hatasi: ${result.reason}")
+        }
+        return result
+    }
+
+    private fun connectWithRetry(maxAttempts: Int): ConnectResult {
+        var result: ConnectResult = ConnectResult.Failure("Baglanti denenmedi")
+        for (attempt in 1..maxAttempts) {
+            result = connectOnce()
+            if (result is ConnectResult.Success) {
+                Log.i(TAG, "RFID baglantisi basarili (deneme $attempt/$maxAttempts)")
+                break
+            }
+            if (attempt < maxAttempts) {
+                runCatching { reader?.disconnect() }
+                runCatching { Thread.sleep(CONNECT_RETRY_DELAY_MS) }
             }
         }
+        return result
+    }
+
+    private fun <T> post(callback: RfidCallback<T>?, value: T) {
+        callback?.let { mainHandler.post { it.onResult(value) } }
     }
 }

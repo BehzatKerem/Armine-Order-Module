@@ -23,4 +23,11 @@
     <color name="menu_icon_bg_transfer">#FF5C4D86</color>
     <color name="menu_icon_bg_rfid">#FF1F6F78</color>
     <color name="surface_card">#FFFFFFFF</color>
+    <!-- Toptan siparis stok kontrolu karti -->
+    <color name="stock_control_on">#FF2E7D32</color>
+    <color name="stock_control_on_bg">#FFE8F5E9</color>
+    <color name="stock_control_off">#FFC62828</color>
+    <color name="stock_control_off_bg">#FFFDECEA</color>
+    <!-- Uygulama ikonu arka plani (Armine logosundaki siyah kare) -->
+    <color name="ic_launcher_background">#000000</color>
 </resources>

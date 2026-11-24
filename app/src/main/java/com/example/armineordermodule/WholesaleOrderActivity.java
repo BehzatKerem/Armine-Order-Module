@@ -3,7 +3,6 @@ package com.example.armineordermodule;
 import android.app.AlertDialog;
 import android.os.Bundle;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.ImageButton;
@@ -15,7 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.armineordermodule.rfid.RfidConnectionManager;
-import com.example.armineordermodule.rfid.RfidManager;
+import com.example.armineordermodule.rfid.RfidTriggerController;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.textfield.TextInputEditText;
@@ -26,13 +25,11 @@ import androidx.activity.OnBackPressedCallback;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Set;
 
-import kotlin.Unit;
 
 /**
  * Toptan siparis urun okutma ekrani (akisin 3. adimi).
@@ -47,15 +44,14 @@ public class WholesaleOrderActivity extends AppCompatActivity {
     public static final String EXTRA_WAREHOUSE_CODE = "extra_warehouse_code";
     public static final String EXTRA_WAREHOUSE_DESCRIPTION = "extra_warehouse_description";
     public static final String EXTRA_DESCRIPTION = "extra_description";
+    /** Kurulum ekranindaki Stok Kontrolu secimi (boolean, varsayilan acik). */
+    public static final String EXTRA_STOCK_CONTROL = "extra_stock_control";
 
-    private static final String TRIGGER_LOG_TAG = "RFID_TRIGGER_KEY";
-    private static final Set<Integer> TRIGGER_KEY_CODES =
-            new LinkedHashSet<>(Arrays.asList(305, 619, 621));
+    private RfidTriggerController rfidTrigger;
     /** Ayni anda coklu cakisan etiket icin tek uyari penceresi. */
     private static final long DUPLICATE_WARNING_THROTTLE_MS = 2500L;
 
     private WholesaleOrder order;
-    private RfidManager rfidManager;
     private WholesaleOrderLineAdapter lineAdapter;
 
     private TextView tvOrderCustomerName;
@@ -87,8 +83,7 @@ public class WholesaleOrderActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_wholesale_order);
-
-        rfidManager = RfidConnectionManager.getManager(this);
+        rfidTrigger = createRfidTrigger();
 
         if (!loadOrFail()) {
             finish();
@@ -112,10 +107,9 @@ public class WholesaleOrderActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         updateRfidUi();
-        if (RfidPreferences.isRfidEnabled(this) && !rfidManager.isConnected()) {
-            RfidConnectionManager.autoReconnectIfNeededAsync(getApplicationContext(), result -> {
+        if (RfidPreferences.isRfidEnabled(this) && !RfidConnectionManager.isConnected()) {
+            RfidConnectionManager.autoReconnectIfNeededAsync(result -> {
                 updateRfidUi();
-                return Unit.INSTANCE;
             });
         }
     }
@@ -129,39 +123,39 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
-    // --- Fiziksel tetik tusu ---
+    // --- Fiziksel tetik (cihaza gore davranis RfidTriggerController icinde) ---
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        Log.d(TRIGGER_LOG_TAG, "keyCode=" + keyCode
-                + " repeatCount=" + (event != null ? event.getRepeatCount() : -1));
-        if (TRIGGER_KEY_CODES.contains(keyCode)) {
-            if (event != null && event.getRepeatCount() == 0 && rfidManager.isConnected()) {
-                if (cancelScanMode) {
-                    if (!isScanning) {
-                        startScanning();
-                    }
-                } else if (RfidPreferences.isPressAndHoldMode(this)) {
-                    if (!isScanning) {
-                        startScanning();
-                    }
-                } else {
-                    toggleScanning();
-                }
-            }
-            return true;
-        }
-        return super.onKeyDown(keyCode, event);
+        return rfidTrigger.onKeyDown(keyCode, event) || super.onKeyDown(keyCode, event);
     }
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (TRIGGER_KEY_CODES.contains(keyCode)) {
-            if (isScanning && !cancelScanMode && RfidPreferences.isPressAndHoldMode(this)) {
-                stopScanning();
+        return rfidTrigger.onKeyUp(keyCode, event) || super.onKeyUp(keyCode, event);
+    }
+
+    private RfidTriggerController createRfidTrigger() {
+        return new RfidTriggerController(this, new RfidTriggerController.Host() {
+            @Override
+            public boolean isScanning() {
+                return isScanning;
             }
-            return true;
-        }
-        return super.onKeyUp(keyCode, event);
+
+            @Override
+            public void startScanning() {
+                WholesaleOrderActivity.this.startScanning();
+            }
+
+            @Override
+            public void stopScanning() {
+                WholesaleOrderActivity.this.stopScanning();
+            }
+
+            @Override
+            public boolean isScanLatched() {
+                return cancelScanMode;
+            }
+        });
     }
 
     private boolean loadOrFail() {
@@ -203,6 +197,7 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         order.warehouseCode = warehouseCode;
         order.warehouseDescription = warehouseDescription != null ? warehouseDescription : "";
         order.description = description != null ? description : "";
+        order.stockControlEnabled = getIntent().getBooleanExtra(EXTRA_STOCK_CONTROL, true);
         return true;
     }
 
@@ -274,6 +269,8 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         lineAdapter = new WholesaleOrderLineAdapter();
         rvOrderLines.setLayoutManager(new LinearLayoutManager(this));
         rvOrderLines.setAdapter(lineAdapter);
+        // Satirdaki cop kutusu, FAB menusundeki "Iptal Barkod" ile ayni modali acar.
+        lineAdapter.setOnLineDeleteClickListener(line -> openCancelBarcodeFromLine());
 
         btnBack.setOnClickListener(v -> requestLeaveScanScreen());
         btnAddManualLine.setOnClickListener(v -> showAddManualLineDialog());
@@ -293,42 +290,15 @@ public class WholesaleOrderActivity extends AppCompatActivity {
 
     // --- RFID tarama (yalnizca fiziksel tetik) ---
 
-    private void toggleScanning() {
-        if (cancelScanMode) {
-            return;
-        }
-        if (isScanning) {
-            stopScanning();
-            return;
-        }
-        clearError();
-        if (rfidManager.isConnected()) {
-            startScanning();
-            return;
-        }
-        RfidConnectionManager.connectAsync(this, result -> {
-            updateRfidUi();
-            if (result instanceof com.example.armineordermodule.rfid.ConnectResult.Success) {
-                if (!cancelScanMode) {
-                    startScanning();
-                }
-            } else {
-                showError(getString(R.string.wholesale_order_rfid_connect_failed));
-            }
-            return Unit.INSTANCE;
-        });
-    }
-
     private void startScanning() {
         RfidConnectionManager.startInventoryAsync(
-                this,
                 tag -> {
                     if (cancelScanMode) {
-                        return handleCancelScanTag(tag.getEpcId());
+                        handleCancelScanTag(tag.getEpcId());
+                        return;
                     }
-                    return handleLiveTagRead(tag.getEpcId());
+                    handleLiveTagRead(tag.getEpcId());
                 },
-                () -> Unit.INSTANCE,
                 started -> {
                     if (started) {
                         isScanning = true;
@@ -337,13 +307,12 @@ public class WholesaleOrderActivity extends AppCompatActivity {
                     } else {
                         showError(getString(R.string.rfid_start_failed));
                     }
-                    return Unit.INSTANCE;
                 });
     }
 
     /**
      * Okunan her yeni EPC aninda listeye yansir (parse / miktar yok).
-     * Donus: {@code false} = surekli SDK ses dongusu kapali.
+     * Okuyucu thread'inden cagrilir. Donus degeri kullanilmiyor (eski SDK ses bayragi).
      */
     private boolean handleLiveTagRead(String epc) {
         if (cancelScanMode) {
@@ -393,6 +362,23 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         return false;
     }
 
+    /**
+     * Etiketin kayitli oldugu siparisi anlatan uyari. Siparis baska bir kullaniciya aitse
+     * o siparisin musterisi gosterilmez.
+     */
+    private String otherOrderEpcMessage(WholesaleOrder otherOrder) {
+        if (!WholesaleOrderStore.isOwnedByCurrentUser(this, otherOrder)) {
+            return getString(R.string.wholesale_order_epc_in_other_user_order);
+        }
+        String customer = !TextUtils.isEmpty(otherOrder.customerDescription)
+                ? otherOrder.customerDescription
+                : otherOrder.customerCode;
+        if (TextUtils.isEmpty(customer)) {
+            customer = "-";
+        }
+        return getString(R.string.wholesale_order_epc_in_other_order, customer);
+    }
+
     private void warnEpcAlreadyInOtherOrder(WholesaleOrder otherOrder) {
         long now = System.currentTimeMillis();
         boolean shouldAlert;
@@ -408,13 +394,7 @@ public class WholesaleOrderActivity extends AppCompatActivity {
 
         RfidConnectionManager.playDuplicateWarning();
 
-        String customer = !TextUtils.isEmpty(otherOrder.customerDescription)
-                ? otherOrder.customerDescription
-                : otherOrder.customerCode;
-        if (TextUtils.isEmpty(customer)) {
-            customer = "-";
-        }
-        final String message = getString(R.string.wholesale_order_epc_in_other_order, customer);
+        final String message = otherOrderEpcMessage(otherOrder);
         runOnUiThread(() -> {
             showError(message);
             Toast.makeText(this, message, Toast.LENGTH_LONG).show();
@@ -425,7 +405,6 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         RfidConnectionManager.stopInventoryAsync(() -> {
             isScanning = false;
             runOnUiThread(() -> tvScanHint.setText(R.string.wholesale_order_scan_hint));
-            return Unit.INSTANCE;
         });
     }
 
@@ -494,10 +473,7 @@ public class WholesaleOrderActivity extends AppCompatActivity {
                         this, epc, order != null ? order.localId : null);
                 if (otherOrder != null) {
                     warnEpcAlreadyInOtherOrder(otherOrder);
-                    etEpc.setError(getString(R.string.wholesale_order_epc_in_other_order,
-                            !TextUtils.isEmpty(otherOrder.customerDescription)
-                                    ? otherOrder.customerDescription
-                                    : otherOrder.customerCode));
+                    etEpc.setError(otherOrderEpcMessage(otherOrder));
                     etEpc.requestFocus();
                     etEpc.selectAll();
                     return;
@@ -562,6 +538,14 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         RfidConnectionManager.playBeep();
     }
 
+    /** Satir sonundaki cop kutusu: hangi satir olursa olsun ayni Iptal Barkod modali. */
+    private void openCancelBarcodeFromLine() {
+        if (fabExpanded) {
+            setFabMenuExpanded(false);
+        }
+        showCancelBarcodeDialog();
+    }
+
     private void showCancelBarcodeDialog() {
         if (cancelScanDialog != null && cancelScanDialog.isShowing()) {
             return;
@@ -572,7 +556,6 @@ public class WholesaleOrderActivity extends AppCompatActivity {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
                 openCancelScanDialog();
-                return Unit.INSTANCE;
             });
             return;
         }
@@ -606,7 +589,7 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         cancelScanDialog.setOnShowListener(dialog -> {
             cancelScanDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
                     v -> confirmCancelDeletes());
-            if (rfidManager.isConnected() && !isScanning) {
+            if (RfidConnectionManager.isConnected() && !isScanning) {
                 startScanning();
             }
         });
@@ -655,7 +638,6 @@ public class WholesaleOrderActivity extends AppCompatActivity {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
                 dismissCancelScanDialog(false);
-                return Unit.INSTANCE;
             });
         } else {
             dismissCancelScanDialog(false);
@@ -687,7 +669,6 @@ public class WholesaleOrderActivity extends AppCompatActivity {
         if (isScanning) {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
-                return Unit.INSTANCE;
             });
         }
         if (cancelled) {
@@ -737,7 +718,7 @@ public class WholesaleOrderActivity extends AppCompatActivity {
     }
 
     private void updateRfidUi() {
-        boolean connected = rfidManager.isConnected();
+        boolean connected = RfidConnectionManager.isConnected();
         dotRfidStatus.setBackgroundResource(connected ? R.drawable.bg_dot_green : R.drawable.bg_dot_red);
         dotRfidStatus.setContentDescription(getString(
                 connected ? R.string.main_rfid_status_connected : R.string.main_rfid_status_disconnected));
@@ -779,7 +760,6 @@ public class WholesaleOrderActivity extends AppCompatActivity {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
                 runOnUiThread(this::persistAndOpenSummary);
-                return Unit.INSTANCE;
             });
             return;
         }
@@ -813,7 +793,6 @@ public class WholesaleOrderActivity extends AppCompatActivity {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
                 runOnUiThread(this::finish);
-                return Unit.INSTANCE;
             });
             return;
         }

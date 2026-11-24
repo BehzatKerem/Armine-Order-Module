@@ -236,10 +236,10 @@ public final class WarehouseApiClient {
                 data = json;
             }
 
-            String databaseName = data.optString("databaseName", "");
-            String defaultOfficeCode = data.optString("defaultOfficeCode", "");
-            String defaultWarehouseCode = data.optString("defaultWarehouseCode", "");
-            String defaultWarehouseDescription = data.optString("defaultWarehouseDescription", "");
+            String databaseName = optText(data, "databaseName");
+            String defaultOfficeCode = optText(data, "defaultOfficeCode");
+            String defaultWarehouseCode = optText(data, "defaultWarehouseCode");
+            String defaultWarehouseDescription = optText(data, "defaultWarehouseDescription");
 
             WarehouseItem defaultWarehouse = parseWarehouse(data.optJSONObject("defaultWarehouse"));
             List<WarehouseItem> warehouses = parseWarehouseList(data.optJSONArray("warehouses"));
@@ -263,6 +263,11 @@ public final class WarehouseApiClient {
         }
 
         return parsed;
+    }
+
+    /** JSON {@code null} degerini bos metin olarak doner; optString onu "null" yapar. */
+    private static String optText(JSONObject json, String key) {
+        return json.isNull(key) ? "" : json.optString(key, "");
     }
 
     private static List<WarehouseItem> parseWarehouseList(JSONArray array) {
@@ -290,15 +295,15 @@ public final class WarehouseApiClient {
             return null;
         }
 
-        String id = json.has("id") ? json.optString("id", "") : "";
-        String userId = json.optString("userId", "");
-        String databaseName = json.optString("databaseName", "");
-        String officeCode = json.optString("officeCode", "");
-        String warehouseCode = json.optString("warehouseCode", "");
-        String warehouseDescription = json.optString("warehouseDescription", "");
-        String storeCode = json.optString("storeCode", "");
+        String id = json.has("id") ? optText(json, "id") : "";
+        String userId = optText(json, "userId");
+        String databaseName = optText(json, "databaseName");
+        String officeCode = optText(json, "officeCode");
+        String warehouseCode = optText(json, "warehouseCode");
+        String warehouseDescription = optText(json, "warehouseDescription");
+        String storeCode = optText(json, "storeCode");
         boolean isDefault = json.optBoolean("isDefault", false);
-        String userName = json.optString("userName", "");
+        String userName = optText(json, "userName");
 
         if (TextUtils.isEmpty(officeCode) && TextUtils.isEmpty(warehouseCode)
                 && TextUtils.isEmpty(storeCode)) {

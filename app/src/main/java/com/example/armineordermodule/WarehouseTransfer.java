@@ -24,6 +24,8 @@ public class WarehouseTransfer {
     public int headerId;
     /** Nebim aktarimi tamamlandi. alreadySent yaniti da bunu true yapar. */
     public boolean isNebimSend;
+    /** Transferi olusturan kullanici ({@link AuthPreferences#getOwnerKey}). Store doldurur. */
+    public String ownerUserId = "";
     public final List<String> epcs = new ArrayList<>();
 
     public int productCount() {
@@ -42,6 +44,7 @@ public class WarehouseTransfer {
         json.put("createdAtMillis", createdAtMillis);
         json.put("headerId", headerId);
         json.put("isNebimSend", isNebimSend);
+        json.put("ownerUserId", ownerUserId != null ? ownerUserId : "");
 
         JSONArray epcsJson = new JSONArray();
         for (String epc : epcs) {
@@ -68,6 +71,7 @@ public class WarehouseTransfer {
         transfer.createdAtMillis = json.optLong("createdAtMillis", 0L);
         transfer.headerId = json.optInt("headerId", 0);
         transfer.isNebimSend = json.optBoolean("isNebimSend", false);
+        transfer.ownerUserId = json.optString("ownerUserId", "");
 
         JSONArray epcsJson = json.optJSONArray("epcs");
         if (epcsJson != null) {

@@ -44,6 +44,13 @@ public class WholesaleOrder {
     public int headerId;
     /** Nebim aktarimi tamamlandi mi. */
     public boolean isNebimSend;
+    /** Siparisi olusturan kullanici ({@link AuthPreferences#getOwnerKey}). Store doldurur. */
+    public String ownerUserId = "";
+    /**
+     * Kurulum ekraninda secilen stok kontrolu. Acikken ozet ekraninda stok bilgisi ve
+     * yetersiz stok uyarisi gosterilir. Eski kayitlar icin varsayilan acik.
+     */
+    public boolean stockControlEnabled = true;
     public final List<WholesaleOrderLine> lines = new ArrayList<>();
 
     public WholesaleOrder(String localId) {
@@ -164,6 +171,8 @@ public class WholesaleOrder {
         json.put("createdAtMillis", createdAtMillis);
         json.put("headerId", headerId);
         json.put("isNebimSend", isNebimSend);
+        json.put("ownerUserId", ownerUserId != null ? ownerUserId : "");
+        json.put("stockControlEnabled", stockControlEnabled);
 
         JSONArray linesJson = new JSONArray();
         for (WholesaleOrderLine line : lines) {
@@ -199,6 +208,8 @@ public class WholesaleOrder {
         order.createdAtMillis = json.optLong("createdAtMillis", System.currentTimeMillis());
         order.headerId = json.optInt("headerId", 0);
         order.isNebimSend = json.optBoolean("isNebimSend", false);
+        order.ownerUserId = json.optString("ownerUserId", "");
+        order.stockControlEnabled = json.optBoolean("stockControlEnabled", true);
         if (order.isNebimSend && !STATUS_SENT.equals(order.status)) {
             order.status = STATUS_SENT;
         }

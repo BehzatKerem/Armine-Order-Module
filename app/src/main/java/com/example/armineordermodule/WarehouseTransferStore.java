@@ -22,7 +22,32 @@ public final class WarehouseTransferStore {
     private WarehouseTransferStore() {
     }
 
+    /**
+     * Giris yapmis kullanicinin transferleri. Sahibi olmayan eski kayitlar ilk erisen
+     * kullaniciya atanir.
+     */
     public static List<WarehouseTransfer> getAll(Context context) {
+        String owner = AuthPreferences.getOwnerKey(context);
+        List<WarehouseTransfer> all = loadAll(context);
+        boolean claimed = false;
+        List<WarehouseTransfer> mine = new ArrayList<>();
+        for (WarehouseTransfer transfer : all) {
+            if (TextUtils.isEmpty(transfer.ownerUserId) && !TextUtils.isEmpty(owner)) {
+                transfer.ownerUserId = owner;
+                claimed = true;
+            }
+            if (owner.equals(transfer.ownerUserId)) {
+                mine.add(transfer);
+            }
+        }
+        if (claimed) {
+            saveAll(context, all);
+        }
+        return mine;
+    }
+
+    /** Tum kullanicilarin transferleri; sadece kayit icin. */
+    private static List<WarehouseTransfer> loadAll(Context context) {
         String json = prefs(context).getString(KEY_TRANSFERS_JSON, "");
         List<WarehouseTransfer> transfers = new ArrayList<>();
         if (TextUtils.isEmpty(json)) {
@@ -65,16 +90,26 @@ public final class WarehouseTransferStore {
         if (transfer == null || TextUtils.isEmpty(transfer.transferGuid)) {
             return;
         }
-        List<WarehouseTransfer> transfers = getAll(context);
+        List<WarehouseTransfer> transfers = loadAll(context);
         boolean replaced = false;
         for (int i = 0; i < transfers.size(); i++) {
             if (transfer.transferGuid.equals(transfers.get(i).transferGuid)) {
+                // Okutma ekrani kaydi her seferinde yeniden olusturur; mevcut sahip korunur.
+                if (TextUtils.isEmpty(transfer.ownerUserId)) {
+                    transfer.ownerUserId = transfers.get(i).ownerUserId;
+                }
+                if (TextUtils.isEmpty(transfer.ownerUserId)) {
+                    transfer.ownerUserId = AuthPreferences.getOwnerKey(context);
+                }
                 transfers.set(i, transfer);
                 replaced = true;
                 break;
             }
         }
         if (!replaced) {
+            if (TextUtils.isEmpty(transfer.ownerUserId)) {
+                transfer.ownerUserId = AuthPreferences.getOwnerKey(context);
+            }
             transfers.add(transfer);
         }
         saveAll(context, transfers);
@@ -84,10 +119,11 @@ public final class WarehouseTransferStore {
         if (TextUtils.isEmpty(transferGuid)) {
             return false;
         }
-        List<WarehouseTransfer> transfers = getAll(context);
+        String owner = AuthPreferences.getOwnerKey(context);
+        List<WarehouseTransfer> transfers = loadAll(context);
         for (int i = 0; i < transfers.size(); i++) {
             if (transferGuid.equals(transfers.get(i).transferGuid)) {
-                if (transfers.get(i).isNebimSend) {
+                if (transfers.get(i).isNebimSend || !owner.equals(transfers.get(i).ownerUserId)) {
                     return false;
                 }
                 transfers.remove(i);
@@ -96,6 +132,33 @@ public final class WarehouseTransferStore {
             }
         }
         return false;
+    }
+
+    /** Transfer giris yapmis kullaniciya mi ait? */
+    public static boolean isOwnedByCurrentUser(Context context, WarehouseTransfer transfer) {
+        return transfer != null
+                && AuthPreferences.getOwnerKey(context).equals(transfer.ownerUserId);
+    }
+
+    /**
+     * Verilen EPC baska bir lokal transferde var mi? (taslak ve gonderilmis dahil —
+     * aktarilmis etiket baska transfere okutulamaz). Tum kullanicilarin transferlerine bakar.
+     * {@code excludeGuid} haric tutulur (acik olan transfer).
+     */
+    public static WarehouseTransfer findOtherTransferContainingEpc(
+            Context context, String epc, String excludeGuid) {
+        if (TextUtils.isEmpty(epc)) {
+            return null;
+        }
+        for (WarehouseTransfer transfer : loadAll(context)) {
+            if (!TextUtils.isEmpty(excludeGuid) && excludeGuid.equals(transfer.transferGuid)) {
+                continue;
+            }
+            if (transfer.epcs.contains(epc)) {
+                return transfer;
+            }
+        }
+        return null;
     }
 
     private static void saveAll(Context context, List<WarehouseTransfer> transfers) {

@@ -97,6 +97,7 @@ public class WholesaleOrderSummaryActivity extends AppCompatActivity {
         FloatingActionButton fabSaveAndSend = findViewById(R.id.fabSaveAndSend);
 
         adapter = new WholesaleOrderSummaryAdapter();
+        adapter.setStockControlEnabled(order.stockControlEnabled);
         rvSummaryProducts.setLayoutManager(new LinearLayoutManager(this));
         rvSummaryProducts.setAdapter(adapter);
 
@@ -200,6 +201,11 @@ public class WholesaleOrderSummaryActivity extends AppCompatActivity {
     }
 
     private void updateStockWarning() {
+        if (!order.stockControlEnabled) {
+            // Kurulumda stok kontrolu kapatildi: uyari gosterilmez.
+            tvStockWarning.setVisibility(View.GONE);
+            return;
+        }
         boolean anyIssue = false;
         for (WholesaleOrderProductInfo info : products) {
             if (info.hasStockIssue()) {

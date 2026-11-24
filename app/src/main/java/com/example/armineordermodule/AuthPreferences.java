@@ -42,6 +42,19 @@ public final class AuthPreferences {
         return prefs(context).getString(KEY_TOKEN, "");
     }
 
+    /**
+     * Cihazdaki kayitlarin (siparis, transfer) hangi kullaniciya ait oldugunu belirleyen
+     * anahtar. Kullanici kimligi yoksa kullanici adi kullanilir; oturum yoksa bos doner.
+     */
+    public static String getOwnerKey(Context context) {
+        String userId = prefs(context).getString(KEY_USER_ID, "");
+        if (!TextUtils.isEmpty(userId)) {
+            return userId.trim();
+        }
+        String userName = getUserName(context);
+        return userName != null ? userName.trim().toLowerCase(java.util.Locale.ROOT) : "";
+    }
+
     public static String getUserName(Context context) {
         return prefs(context).getString(KEY_USER_NAME, "");
     }

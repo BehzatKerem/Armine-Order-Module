@@ -1,6 +1,7 @@
 package com.example.armineordermodule;
 
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.View;
@@ -14,6 +15,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.TextInputEditText;
 
 /**
@@ -34,6 +37,10 @@ public class WholesaleOrderSetupActivity extends AppCompatActivity {
     private ProgressBar progressWarehouses;
     private RecyclerView rvWarehouses;
     private MaterialButton btnContinue;
+    private MaterialCardView cardStockControl;
+    private View dotStockControl;
+    private TextView tvStockControlState;
+    private SwitchMaterial switchStockControl;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -74,6 +81,19 @@ public class WholesaleOrderSetupActivity extends AppCompatActivity {
         rvWarehouses.setLayoutManager(new LinearLayoutManager(this));
         rvWarehouses.setAdapter(warehouseAdapter);
 
+        cardStockControl = findViewById(R.id.cardStockControl);
+        dotStockControl = findViewById(R.id.dotStockControl);
+        tvStockControlState = findViewById(R.id.tvStockControlState);
+        switchStockControl = findViewById(R.id.switchStockControl);
+        switchStockControl.setChecked(WholesaleOrderPreferences.isStockControlEnabled(this));
+        switchStockControl.setOnCheckedChangeListener((button, checked) -> {
+            WholesaleOrderPreferences.setStockControlEnabled(this, checked);
+            renderStockControl();
+        });
+        // Kartin tamamina dokunmak da anahtari cevirir (el terminalinde kucuk hedef olmasin).
+        cardStockControl.setOnClickListener(v -> switchStockControl.toggle());
+        renderStockControl();
+
         btnBack.setOnClickListener(v -> finish());
         btnContinue.setOnClickListener(v -> continueToScan());
 
@@ -87,31 +107,11 @@ public class WholesaleOrderSetupActivity extends AppCompatActivity {
 
     private void refreshWarehousesFromApi() {
         clearError();
-
-        String serverUrl = ServerPreferences.getServerUrl(this);
-        if (TextUtils.isEmpty(serverUrl)) {
-            showWarehouseLoadFailed(getString(R.string.server_url_missing));
-            return;
-        }
-
-        String token = AuthPreferences.getToken(this);
-        String databaseName = AuthPreferences.getDefaultDatabase(this);
-        if (TextUtils.isEmpty(token) || !AuthPreferences.hasValidSession(this)) {
-            showWarehouseLoadFailed(getString(R.string.warehouses_session_required));
-            return;
-        }
-        if (TextUtils.isEmpty(databaseName)) {
-            showWarehouseLoadFailed(getString(R.string.warehouses_database_missing));
-            return;
-        }
-
         setWarehousesLoading(true);
-        WarehouseApiClient.getWarehouses(serverUrl, token, databaseName,
-                new WarehouseApiClient.WarehousesCallback() {
+        WarehouseSync.refresh(this, new WarehouseSync.Callback() {
                     @Override
                     public void onSuccess(WarehousesResult result) {
                         setWarehousesLoading(false);
-                        WarehousePreferences.save(WholesaleOrderSetupActivity.this, result);
                         if (result.warehouses.isEmpty()) {
                             showWarehouseLoadFailed(getString(R.string.wholesale_order_no_warehouses));
                             return;
@@ -127,6 +127,26 @@ public class WholesaleOrderSetupActivity extends AppCompatActivity {
                                 : message);
                     }
                 });
+    }
+
+    /** Stok kontrolu kartini renklendirir: acik = yesil, kapali = kirmizi. */
+    private void renderStockControl() {
+        boolean on = switchStockControl.isChecked();
+        int accent = ContextCompat.getColor(this, on ? R.color.stock_control_on : R.color.stock_control_off);
+        int background = ContextCompat.getColor(this,
+                on ? R.color.stock_control_on_bg : R.color.stock_control_off_bg);
+
+        cardStockControl.setStrokeColor(accent);
+        cardStockControl.setCardBackgroundColor(background);
+        dotStockControl.setBackgroundResource(on ? R.drawable.bg_dot_green : R.drawable.bg_dot_red);
+        tvStockControlState.setText(on
+                ? R.string.wholesale_order_stock_control_on
+                : R.string.wholesale_order_stock_control_off);
+        tvStockControlState.setTextColor(accent);
+
+        switchStockControl.setThumbTintList(ColorStateList.valueOf(accent));
+        switchStockControl.setTrackTintList(ColorStateList.valueOf(
+                androidx.core.graphics.ColorUtils.setAlphaComponent(accent, 0x66)));
     }
 
     private void applyWarehousesResult(WarehousesResult result) {
@@ -190,6 +210,7 @@ public class WholesaleOrderSetupActivity extends AppCompatActivity {
         intent.putExtra(WholesaleOrderActivity.EXTRA_WAREHOUSE_CODE, selected.warehouseCode);
         intent.putExtra(WholesaleOrderActivity.EXTRA_WAREHOUSE_DESCRIPTION, selected.warehouseDescription);
         intent.putExtra(WholesaleOrderActivity.EXTRA_DESCRIPTION, description);
+        intent.putExtra(WholesaleOrderActivity.EXTRA_STOCK_CONTROL, switchStockControl.isChecked());
         startActivity(intent);
         finish();
     }

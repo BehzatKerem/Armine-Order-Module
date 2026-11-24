@@ -26,7 +26,39 @@ public final class WholesaleOrderStore {
     private WholesaleOrderStore() {
     }
 
+    /**
+     * Giris yapmis kullanicinin siparisleri. Baska kullanicilarin siparisleri listelenmez
+     * ve acilamaz. Sahibi olmayan eski kayitlar (bu ozellikten once kaydedilenler) ilk
+     * erisen kullaniciya atanir.
+     */
     public static List<WholesaleOrder> getAll(Context context) {
+        String owner = AuthPreferences.getOwnerKey(context);
+        List<WholesaleOrder> all = loadAll(context);
+        boolean claimed = false;
+        List<WholesaleOrder> mine = new ArrayList<>();
+        for (WholesaleOrder order : all) {
+            if (TextUtils.isEmpty(order.ownerUserId) && !TextUtils.isEmpty(owner)) {
+                order.ownerUserId = owner;
+                claimed = true;
+            }
+            if (owner.equals(order.ownerUserId)) {
+                mine.add(order);
+            }
+        }
+        if (claimed) {
+            saveAll(context, all);
+        }
+        return mine;
+    }
+
+    /** Siparis giris yapmis kullaniciya mi ait? */
+    public static boolean isOwnedByCurrentUser(Context context, WholesaleOrder order) {
+        return order != null
+                && AuthPreferences.getOwnerKey(context).equals(order.ownerUserId);
+    }
+
+    /** Tum kullanicilarin siparisleri. Sadece EPC cakisma kontrolu ve kayit icin. */
+    private static List<WholesaleOrder> loadAll(Context context) {
         String json = prefs(context).getString(KEY_ORDERS_JSON, "");
         List<WholesaleOrder> orders = new ArrayList<>();
         if (TextUtils.isEmpty(json)) {
@@ -75,16 +107,26 @@ public final class WholesaleOrderStore {
 
     /** Ayni localId'ye sahip siparis varsa yerine yazar, yoksa ekler. */
     public static void upsert(Context context, WholesaleOrder order) {
-        List<WholesaleOrder> orders = getAll(context);
+        List<WholesaleOrder> orders = loadAll(context);
         boolean replaced = false;
         for (int i = 0; i < orders.size(); i++) {
             if (orders.get(i).localId.equals(order.localId)) {
+                // Ekranlar kaydi yeniden olusturup kaydedebilir; mevcut sahip korunur.
+                if (TextUtils.isEmpty(order.ownerUserId)) {
+                    order.ownerUserId = orders.get(i).ownerUserId;
+                }
+                if (TextUtils.isEmpty(order.ownerUserId)) {
+                    order.ownerUserId = AuthPreferences.getOwnerKey(context);
+                }
                 orders.set(i, order);
                 replaced = true;
                 break;
             }
         }
         if (!replaced) {
+            if (TextUtils.isEmpty(order.ownerUserId)) {
+                order.ownerUserId = AuthPreferences.getOwnerKey(context);
+            }
             orders.add(order);
         }
         saveAll(context, orders);
@@ -98,11 +140,11 @@ public final class WholesaleOrderStore {
         if (TextUtils.isEmpty(localId)) {
             return false;
         }
-        List<WholesaleOrder> orders = getAll(context);
+        List<WholesaleOrder> orders = loadAll(context);
         for (int i = 0; i < orders.size(); i++) {
             WholesaleOrder order = orders.get(i);
             if (localId.equals(order.localId)) {
-                if (order.isTransferred()) {
+                if (order.isTransferred() || !isOwnedByCurrentUser(context, order)) {
                     return false;
                 }
                 orders.remove(i);
@@ -123,7 +165,8 @@ public final class WholesaleOrderStore {
         if (TextUtils.isEmpty(epc)) {
             return null;
         }
-        for (WholesaleOrder order : getAll(context)) {
+        // Tum kullanicilar: ayni etiket iki farkli kullanicinin siparisine giremez.
+        for (WholesaleOrder order : loadAll(context)) {
             if (!TextUtils.isEmpty(excludeLocalId) && excludeLocalId.equals(order.localId)) {
                 continue;
             }

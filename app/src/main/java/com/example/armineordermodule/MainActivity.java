@@ -12,10 +12,10 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.armineordermodule.rfid.RfidConnectionManager;
+import com.example.armineordermodule.rfid.RfidReaderType;
 import com.example.armineordermodule.rfid.RfidScanActivity;
 import com.google.android.material.button.MaterialButton;
 
-import kotlin.Unit;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -104,9 +104,8 @@ public class MainActivity extends AppCompatActivity {
      */
     private void maybeAutoReconnectRfid() {
         if (RfidPreferences.isRfidEnabled(this) && !RfidConnectionManager.isConnected()) {
-            RfidConnectionManager.autoReconnectIfNeededAsync(getApplicationContext(), result -> {
+            RfidConnectionManager.autoReconnectIfNeededAsync(result -> {
                 refreshRfidStatusUi();
-                return Unit.INSTANCE;
             });
         }
     }
@@ -114,7 +113,14 @@ public class MainActivity extends AppCompatActivity {
     private void refreshRfidStatusUi() {
         boolean connected = RfidConnectionManager.isConnected();
         dotRfidStatus.setBackgroundResource(connected ? R.drawable.bg_dot_green : R.drawable.bg_dot_red);
-        tvRfidStatus.setText(connected ? R.string.main_rfid_status_connected : R.string.main_rfid_status_disconnected);
+        if (connected) {
+            tvRfidStatus.setText(getString(R.string.main_rfid_status_connected_with_type,
+                    getString(RfidConnectionManager.getReaderType() == RfidReaderType.CHAINWAY
+                            ? R.string.rfid_reader_type_chainway_short
+                            : R.string.rfid_reader_type_bld_short)));
+        } else {
+            tvRfidStatus.setText(R.string.main_rfid_status_disconnected);
+        }
     }
 
     private void showComingSoon() {

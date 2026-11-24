@@ -16,6 +16,13 @@ public class WholesaleOrderSummaryAdapter
         extends RecyclerView.Adapter<WholesaleOrderSummaryAdapter.ViewHolder> {
 
     private final List<WholesaleOrderProductInfo> items = new ArrayList<>();
+    private boolean stockControlEnabled = true;
+
+    /** Stok kontrolu kapaliysa satirlarda stok bilgisi gosterilmez. */
+    public void setStockControlEnabled(boolean enabled) {
+        stockControlEnabled = enabled;
+        notifyDataSetChanged();
+    }
 
     public void submitList(List<WholesaleOrderProductInfo> products) {
         items.clear();
@@ -35,7 +42,7 @@ public class WholesaleOrderSummaryAdapter
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        holder.bind(items.get(position));
+        holder.bind(items.get(position), stockControlEnabled);
     }
 
     @Override
@@ -59,7 +66,7 @@ public class WholesaleOrderSummaryAdapter
             tvProductStock = itemView.findViewById(R.id.tvProductStock);
         }
 
-        void bind(WholesaleOrderProductInfo info) {
+        void bind(WholesaleOrderProductInfo info, boolean stockControlEnabled) {
             tvProductName.setText(info.displayTitle());
             tvProductQty.setText(itemView.getContext().getString(
                     R.string.wholesale_order_summary_qty, info.qty));
@@ -89,6 +96,12 @@ public class WholesaleOrderSummaryAdapter
             } else {
                 tvProductMeta.setVisibility(View.GONE);
             }
+
+            if (!stockControlEnabled) {
+                tvProductStock.setVisibility(View.GONE);
+                return;
+            }
+            tvProductStock.setVisibility(View.VISIBLE);
 
             int errorColor = ContextCompat.getColor(itemView.getContext(), R.color.login_error);
             int okColor = ContextCompat.getColor(itemView.getContext(), R.color.login_primary);

@@ -3,7 +3,6 @@ package com.example.armineordermodule;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.widget.ImageButton;
@@ -17,20 +16,18 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.armineordermodule.rfid.RfidConnectionManager;
-import com.example.armineordermodule.rfid.RfidManager;
+import com.example.armineordermodule.rfid.RfidTriggerController;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
-import kotlin.Unit;
 
 /**
  * Depo transferi urun okutma: tetik ile gelen EPC'ler oldugu gibi listelenir.
@@ -47,11 +44,10 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
 
     private static final String STATE_TRANSFER = "state_transfer";
     private static final String JSON_LOG_TAG = "WAREHOUSE_TRANSFER";
-    private static final String TRIGGER_LOG_TAG = "RFID_TRIGGER_KEY";
-    private static final Set<Integer> TRIGGER_KEY_CODES =
-            new LinkedHashSet<>(Arrays.asList(305, 619, 621));
+    private static final long DUPLICATE_WARNING_THROTTLE_MS = 2500L;
+    private long lastDuplicateWarningAtMs;
+    private RfidTriggerController rfidTrigger;
 
-    private RfidManager rfidManager;
     private RfidHandheldCountingEpcAdapter epcAdapter;
     private RecyclerView rvEpcs;
     private TextView tvScanError;
@@ -90,8 +86,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_warehouse_transfer_scan);
-
-        rfidManager = RfidConnectionManager.getManager(this);
+        rfidTrigger = createRfidTrigger();
 
         ImageButton btnBack = findViewById(R.id.btnBack);
         TextView tvTransferRoute = findViewById(R.id.tvTransferRoute);
@@ -111,6 +106,8 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         epcAdapter = new RfidHandheldCountingEpcAdapter();
         rvEpcs.setLayoutManager(new LinearLayoutManager(this));
         rvEpcs.setAdapter(epcAdapter);
+        // Satirdaki cop kutusu, FAB menusundeki "Iptal Barkod" ile ayni modali acar.
+        epcAdapter.setOnLineDeleteClickListener(epc -> openCancelBarcodeFromLine());
 
         if (!bindSession(savedInstanceState)) {
             Toast.makeText(this, R.string.warehouse_transfer_not_found, Toast.LENGTH_LONG).show();
@@ -230,10 +227,9 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         updateRfidUi();
-        if (RfidPreferences.isRfidEnabled(this) && !rfidManager.isConnected()) {
-            RfidConnectionManager.autoReconnectIfNeededAsync(getApplicationContext(), result -> {
+        if (RfidPreferences.isRfidEnabled(this) && !RfidConnectionManager.isConnected()) {
+            RfidConnectionManager.autoReconnectIfNeededAsync(result -> {
                 updateRfidUi();
-                return Unit.INSTANCE;
             });
         }
     }
@@ -247,82 +243,56 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
+    // --- Fiziksel tetik (cihaza gore davranis RfidTriggerController icinde) ---
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        Log.d(TRIGGER_LOG_TAG, "keyCode=" + keyCode);
-        if (TRIGGER_KEY_CODES.contains(keyCode)) {
-            if (event != null && event.getRepeatCount() == 0 && rfidManager.isConnected()) {
-                if (cancelScanMode) {
-                    if (!isScanning) {
-                        startScanning();
-                    }
-                } else if (RfidPreferences.isPressAndHoldMode(this)) {
-                    if (!isScanning) {
-                        startScanning();
-                    }
-                } else {
-                    toggleScanning();
-                }
-            }
-            return true;
-        }
-        return super.onKeyDown(keyCode, event);
+        return rfidTrigger.onKeyDown(keyCode, event) || super.onKeyDown(keyCode, event);
     }
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (TRIGGER_KEY_CODES.contains(keyCode)) {
-            if (isScanning && !cancelScanMode && RfidPreferences.isPressAndHoldMode(this)) {
-                stopScanning();
-            }
-            return true;
-        }
-        return super.onKeyUp(keyCode, event);
+        return rfidTrigger.onKeyUp(keyCode, event) || super.onKeyUp(keyCode, event);
     }
 
-    private void toggleScanning() {
-        if (cancelScanMode) {
-            return;
-        }
-        if (isScanning) {
-            stopScanning();
-            return;
-        }
-        clearError();
-        if (rfidManager.isConnected()) {
-            startScanning();
-            return;
-        }
-        RfidConnectionManager.connectAsync(this, result -> {
-            updateRfidUi();
-            if (result instanceof com.example.armineordermodule.rfid.ConnectResult.Success) {
-                if (!cancelScanMode) {
-                    startScanning();
-                }
-            } else {
-                showError(getString(R.string.inventory_rfid_connect_failed));
+    private RfidTriggerController createRfidTrigger() {
+        return new RfidTriggerController(this, new RfidTriggerController.Host() {
+            @Override
+            public boolean isScanning() {
+                return isScanning;
             }
-            return Unit.INSTANCE;
+
+            @Override
+            public void startScanning() {
+                WarehouseTransferScanActivity.this.startScanning();
+            }
+
+            @Override
+            public void stopScanning() {
+                WarehouseTransferScanActivity.this.stopScanning();
+            }
+
+            @Override
+            public boolean isScanLatched() {
+                return cancelScanMode;
+            }
         });
     }
 
     private void startScanning() {
         RfidConnectionManager.startInventoryAsync(
-                this,
                 tag -> {
                     if (cancelScanMode) {
-                        return handleCancelScanTag(tag.getEpcId());
+                        handleCancelScanTag(tag.getEpcId());
+                        return;
                     }
-                    return handleLiveTagRead(tag.getEpcId());
+                    handleLiveTagRead(tag.getEpcId());
                 },
-                () -> Unit.INSTANCE,
                 started -> {
                     if (started) {
                         isScanning = true;
                     } else {
                         showError(getString(R.string.rfid_start_failed));
                     }
-                    return Unit.INSTANCE;
                 });
     }
 
@@ -335,6 +305,19 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         }
         final String normalized = epc.trim();
         if (normalized.isEmpty()) {
+            return false;
+        }
+
+        synchronized (scanLock) {
+            if (acceptedEpcs.contains(normalized)) {
+                return false;
+            }
+        }
+
+        WarehouseTransfer otherTransfer = WarehouseTransferStore.findOtherTransferContainingEpc(
+                this, normalized, transferGuid);
+        if (otherTransfer != null) {
+            warnEpcAlreadyInOtherTransfer(otherTransfer);
             return false;
         }
 
@@ -354,10 +337,35 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         return false;
     }
 
+    private String otherTransferEpcMessage(WarehouseTransfer otherTransfer) {
+        if (!WarehouseTransferStore.isOwnedByCurrentUser(this, otherTransfer)) {
+            return getString(R.string.warehouse_transfer_epc_in_other_user_transfer);
+        }
+        String route = getString(R.string.warehouse_transfer_scan_route,
+                otherTransfer.sourceDescription, otherTransfer.targetDescription);
+        return getString(R.string.warehouse_transfer_epc_in_other_transfer, route);
+    }
+
+    /** Okuyucu thread'inden cagrilir; surekli okumada uyari sesi/mesaji seyreltilir. */
+    private void warnEpcAlreadyInOtherTransfer(WarehouseTransfer otherTransfer) {
+        long now = System.currentTimeMillis();
+        synchronized (scanLock) {
+            if (now - lastDuplicateWarningAtMs < DUPLICATE_WARNING_THROTTLE_MS) {
+                return;
+            }
+            lastDuplicateWarningAtMs = now;
+        }
+        RfidConnectionManager.playDuplicateWarning();
+        final String message = otherTransferEpcMessage(otherTransfer);
+        runOnUiThread(() -> {
+            showError(message);
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        });
+    }
+
     private void stopScanning() {
         RfidConnectionManager.stopInventoryAsync(() -> {
             isScanning = false;
-            return Unit.INSTANCE;
         });
     }
 
@@ -390,6 +398,14 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         RfidConnectionManager.playBeep();
     }
 
+    /** Satir sonundaki cop kutusu: hangi satir olursa olsun ayni Iptal Barkod modali. */
+    private void openCancelBarcodeFromLine() {
+        if (fabExpanded) {
+            setFabMenuExpanded(false);
+        }
+        showCancelBarcodeDialog();
+    }
+
     private void showCancelBarcodeDialog() {
         if (cancelScanDialog != null && cancelScanDialog.isShowing()) {
             return;
@@ -400,7 +416,6 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
                 openCancelScanDialog();
-                return Unit.INSTANCE;
             });
             return;
         }
@@ -434,7 +449,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         cancelScanDialog.setOnShowListener(dialog -> {
             cancelScanDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
                     v -> confirmCancelDeletes());
-            if (rfidManager.isConnected() && !isScanning) {
+            if (RfidConnectionManager.isConnected() && !isScanning) {
                 startScanning();
             }
         });
@@ -474,7 +489,6 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
                 dismissCancelScanDialog(false);
-                return Unit.INSTANCE;
             });
         } else {
             dismissCancelScanDialog(false);
@@ -506,7 +520,6 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         if (isScanning) {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
-                return Unit.INSTANCE;
             });
         }
         if (cancelled) {
@@ -699,11 +712,21 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         if (isScanning) {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
-                runOnUiThread(this::finish);
-                return Unit.INSTANCE;
+                openTransferList();
             });
             return;
         }
+        openTransferList();
+    }
+
+    /**
+     * Transfer listesine doner. Yeni transferde arada depo secim ekrani acik kalir;
+     * CLEAR_TOP onu da kapatir, boylece geri tusu depo secimine degil listeye duser.
+     */
+    private void openTransferList() {
+        Intent intent = new Intent(this, WarehouseTransferListActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(intent);
         finish();
     }
 
@@ -728,7 +751,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     }
 
     private void updateRfidUi() {
-        boolean connected = rfidManager.isConnected();
+        boolean connected = RfidConnectionManager.isConnected();
         dotRfidStatus.setBackgroundResource(connected ? R.drawable.bg_dot_green : R.drawable.bg_dot_red);
     }
 

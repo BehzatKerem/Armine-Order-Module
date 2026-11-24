@@ -3,12 +3,15 @@ package com.example.armineordermodule;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import androidx.annotation.Nullable;
+
 /** Sunucu Ayarlari ekranindaki "RFID" anahtarinin acik/kapali durumunu saklar. */
 public final class RfidPreferences {
 
     private static final String PREFS_NAME = "rfid_prefs";
     private static final String KEY_RFID_ENABLED = "rfid_enabled";
     private static final String KEY_PRESS_AND_HOLD_MODE = "press_and_hold_mode";
+    private static final String KEY_READER_TYPE = "reader_type";
     /** Bu surumle birlikte acilis baglantisi varsayilan oldu. Bayrak bir kez yazilir;
      *  kullanici anahtari sonradan kapatirsa tekrar acilmaz. */
     private static final String KEY_AUTO_CONNECT_DEFAULT = "auto_connect_default_v2";
@@ -54,5 +57,27 @@ public final class RfidPreferences {
     public static void setPressAndHoldMode(Context context, boolean pressAndHold) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putBoolean(KEY_PRESS_AND_HOLD_MODE, pressAndHold).apply();
+    }
+
+    /**
+     * Elle secilmis RFID cihaz tipi ({@link com.example.armineordermodule.rfid.RfidReaderType#getPrefValue()}).
+     * {@code null} ise otomatik tespit kullanilir. Bkz. {@link com.example.armineordermodule.rfid.RfidDeviceDetector}.
+     */
+    @Nullable
+    public static String getReaderTypeOverride(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getString(KEY_READER_TYPE, null);
+    }
+
+    /** {@code null} vermek otomatik tespite dondurur. */
+    public static void setReaderTypeOverride(Context context, @Nullable String prefValue) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = prefs.edit();
+        if (prefValue == null) {
+            editor.remove(KEY_READER_TYPE);
+        } else {
+            editor.putString(KEY_READER_TYPE, prefValue);
+        }
+        editor.apply();
     }
 }

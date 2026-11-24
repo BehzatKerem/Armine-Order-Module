@@ -1,7 +1,6 @@
 package com.example.armineordermodule;
 
 import android.os.Bundle;
-import android.text.TextUtils;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.TextView;
@@ -54,45 +53,24 @@ public class WarehousesActivity extends AppCompatActivity {
 
     private void refreshWarehouses() {
         clearError();
-
-        String serverUrl = ServerPreferences.getServerUrl(this);
-        if (TextUtils.isEmpty(serverUrl)) {
-            showError(getString(R.string.server_url_missing));
-            return;
-        }
-
-        String token = AuthPreferences.getToken(this);
-        String databaseName = AuthPreferences.getDefaultDatabase(this);
-
-        if (TextUtils.isEmpty(token) || !AuthPreferences.hasValidSession(this)) {
-            showError(getString(R.string.warehouses_session_required));
-            return;
-        }
-        if (TextUtils.isEmpty(databaseName)) {
-            showError(getString(R.string.warehouses_database_missing));
-            return;
-        }
-
         setLoading(true);
-        WarehouseApiClient.getWarehouses(serverUrl, token, databaseName,
-                new WarehouseApiClient.WarehousesCallback() {
-                    @Override
-                    public void onSuccess(WarehousesResult result) {
-                        setLoading(false);
-                        WarehousePreferences.save(WarehousesActivity.this, result);
-                        adapter.submitList(result.warehouses);
-                        tvWarehousesStatus.setText(getString(
-                                R.string.warehouses_updated_count, result.warehouses.size()));
-                        Toast.makeText(WarehousesActivity.this,
-                                R.string.warehouses_update_success, Toast.LENGTH_SHORT).show();
-                    }
+        WarehouseSync.refresh(this, new WarehouseSync.Callback() {
+            @Override
+            public void onSuccess(WarehousesResult result) {
+                setLoading(false);
+                adapter.submitList(result.warehouses);
+                tvWarehousesStatus.setText(getString(
+                        R.string.warehouses_updated_count, result.warehouses.size()));
+                Toast.makeText(WarehousesActivity.this,
+                        R.string.warehouses_update_success, Toast.LENGTH_SHORT).show();
+            }
 
-                    @Override
-                    public void onError(String message) {
-                        setLoading(false);
-                        showError(message);
-                    }
-                });
+            @Override
+            public void onError(String message) {
+                setLoading(false);
+                showError(message);
+            }
+        });
     }
 
     private void setLoading(boolean loading) {

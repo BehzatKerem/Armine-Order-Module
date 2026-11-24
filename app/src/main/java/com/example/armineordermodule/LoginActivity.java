@@ -1,11 +1,13 @@
 package com.example.armineordermodule;
 
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.View;
 import android.widget.ImageButton;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -29,6 +31,9 @@ public class LoginActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
 
         if (AuthPreferences.hasValidSession(this)) {
+            // Oturum hala gecerli, giris ekrani atlaniyor. Depolar sunucuda degismis olabilir;
+            // cevrimdisi acilista uyari gostermemek icin sonuc sadece loglanir.
+            WarehouseSync.refreshInBackground(this, null);
             openMainScreen();
             return;
         }
@@ -124,6 +129,7 @@ public class LoginActivity extends AppCompatActivity {
             public void onSuccess(LoginResult result) {
                 setLoading(false);
                 AuthPreferences.saveSession(LoginActivity.this, result);
+                refreshWarehousesAfterLogin();
                 openMainScreen();
             }
 
@@ -149,6 +155,23 @@ public class LoginActivity extends AppCompatActivity {
         tilUsername.setError(null);
         tilPassword.setError(null);
         tvLoginError.setVisibility(View.GONE);
+    }
+
+    /** Her giriste varsayilan depolari sunucudan yeniler; kullanici beklemez. */
+    private void refreshWarehousesAfterLogin() {
+        Context appContext = getApplicationContext();
+        WarehouseSync.refreshInBackground(appContext, new WarehouseSync.Callback() {
+            @Override
+            public void onSuccess(WarehousesResult result) {
+            }
+
+            @Override
+            public void onError(String message) {
+                Toast.makeText(appContext,
+                        appContext.getString(R.string.warehouses_auto_update_failed, message),
+                        Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private void openMainScreen() {

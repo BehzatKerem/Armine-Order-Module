@@ -3,7 +3,6 @@ package com.example.armineordermodule;
 import android.app.AlertDialog;
 import android.os.Bundle;
 import android.text.TextUtils;
-import android.util.Log;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.WindowManager;
@@ -17,19 +16,17 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.armineordermodule.rfid.RfidConnectionManager;
-import com.example.armineordermodule.rfid.RfidManager;
+import com.example.armineordermodule.rfid.RfidTriggerController;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.textfield.TextInputEditText;
 
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
-import kotlin.Unit;
 
 /**
  * Sayim lokasyonu urun okutma ekrani. Mantik toptan siparis okutma ile ayni:
@@ -40,14 +37,11 @@ public class InventoryScanActivity extends AppCompatActivity {
     public static final String EXTRA_COUNT_LOCAL_ID = "extra_count_local_id";
     public static final String EXTRA_LOCATION_LOCAL_ID = "extra_location_local_id";
 
-    private static final String TRIGGER_LOG_TAG = "RFID_TRIGGER_KEY";
-    private static final Set<Integer> TRIGGER_KEY_CODES =
-            new LinkedHashSet<>(Arrays.asList(305, 619, 621));
+    private RfidTriggerController rfidTrigger;
     private static final long DUPLICATE_WARNING_THROTTLE_MS = 2500L;
 
     private InventoryCount count;
     private InventoryLocation location;
-    private RfidManager rfidManager;
     private InventoryLineAdapter lineAdapter;
 
     private TextView tvOrderCustomerName;
@@ -77,8 +71,7 @@ public class InventoryScanActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_wholesale_order);
-
-        rfidManager = RfidConnectionManager.getManager(this);
+        rfidTrigger = createRfidTrigger();
 
         if (!loadOrFail()) {
             finish();
@@ -95,10 +88,9 @@ public class InventoryScanActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         updateRfidUi();
-        if (RfidPreferences.isRfidEnabled(this) && !rfidManager.isConnected()) {
-            RfidConnectionManager.autoReconnectIfNeededAsync(getApplicationContext(), result -> {
+        if (RfidPreferences.isRfidEnabled(this) && !RfidConnectionManager.isConnected()) {
+            RfidConnectionManager.autoReconnectIfNeededAsync(result -> {
                 updateRfidUi();
-                return Unit.INSTANCE;
             });
         }
     }
@@ -117,34 +109,39 @@ public class InventoryScanActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
+    // --- Fiziksel tetik (cihaza gore davranis RfidTriggerController icinde) ---
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        Log.d(TRIGGER_LOG_TAG, "keyCode=" + keyCode
-                + " repeatCount=" + (event != null ? event.getRepeatCount() : -1));
-        if (TRIGGER_KEY_CODES.contains(keyCode)) {
-            if (event != null && event.getRepeatCount() == 0 && rfidManager.isConnected()) {
-                if (RfidPreferences.isPressAndHoldMode(this)) {
-                    if (!isScanning) {
-                        startScanning();
-                    }
-                } else {
-                    toggleScanning();
-                }
-            }
-            return true;
-        }
-        return super.onKeyDown(keyCode, event);
+        return rfidTrigger.onKeyDown(keyCode, event) || super.onKeyDown(keyCode, event);
     }
 
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
-        if (TRIGGER_KEY_CODES.contains(keyCode)) {
-            if (isScanning && RfidPreferences.isPressAndHoldMode(this)) {
-                stopScanning();
+        return rfidTrigger.onKeyUp(keyCode, event) || super.onKeyUp(keyCode, event);
+    }
+
+    private RfidTriggerController createRfidTrigger() {
+        return new RfidTriggerController(this, new RfidTriggerController.Host() {
+            @Override
+            public boolean isScanning() {
+                return isScanning;
             }
-            return true;
-        }
-        return super.onKeyUp(keyCode, event);
+
+            @Override
+            public void startScanning() {
+                InventoryScanActivity.this.startScanning();
+            }
+
+            @Override
+            public void stopScanning() {
+                InventoryScanActivity.this.stopScanning();
+            }
+
+            @Override
+            public boolean isScanLatched() {
+                return false;
+            }
+        });
     }
 
     private boolean loadOrFail() {
@@ -232,30 +229,8 @@ public class InventoryScanActivity extends AppCompatActivity {
         renderLines();
     }
 
-    private void toggleScanning() {
-        if (isScanning) {
-            stopScanning();
-            return;
-        }
-        clearError();
-        if (rfidManager.isConnected()) {
-            startScanning();
-            return;
-        }
-        RfidConnectionManager.connectAsync(this, result -> {
-            updateRfidUi();
-            if (result instanceof com.example.armineordermodule.rfid.ConnectResult.Success) {
-                startScanning();
-            } else {
-                showError(getString(R.string.inventory_rfid_connect_failed));
-            }
-            return Unit.INSTANCE;
-        });
-    }
-
     private void startScanning() {
         RfidConnectionManager.startInventoryAsync(
-                this,
                 tag -> {
                     String epc = tag.getEpcId();
                     if (!EpcBarcodeGrouping.isAcceptedEpc(epc)) {
@@ -263,14 +238,14 @@ public class InventoryScanActivity extends AppCompatActivity {
                             runOnUiThread(() -> showDeleteScanStatus(
                                     getString(R.string.inventory_delete_invalid_tag)));
                         }
-                        return true;
+                        return;
                     }
                     if (deleteScanMode) {
-                        return handleDeleteScanTag(epc);
+                        handleDeleteScanTag(epc);
+                        return;
                     }
-                    return handleLiveTagRead(epc);
+                    handleLiveTagRead(epc);
                 },
-                () -> Unit.INSTANCE,
                 started -> {
                     if (started) {
                         isScanning = true;
@@ -281,7 +256,6 @@ public class InventoryScanActivity extends AppCompatActivity {
                             showError(getString(R.string.rfid_start_failed));
                         }
                     }
-                    return Unit.INSTANCE;
                 });
     }
 
@@ -358,7 +332,6 @@ public class InventoryScanActivity extends AppCompatActivity {
         RfidConnectionManager.stopInventoryAsync(() -> {
             isScanning = false;
             runOnUiThread(() -> tvScanHint.setText(R.string.inventory_scan_hint));
-            return Unit.INSTANCE;
         });
     }
 
@@ -484,7 +457,6 @@ public class InventoryScanActivity extends AppCompatActivity {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
                 openDeleteScanDialog(line.barcode);
-                return Unit.INSTANCE;
             });
             return;
         }
@@ -609,7 +581,6 @@ public class InventoryScanActivity extends AppCompatActivity {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
                 dismissDeleteScanDialog(false);
-                return Unit.INSTANCE;
             });
         } else {
             dismissDeleteScanDialog(false);
@@ -670,7 +641,6 @@ public class InventoryScanActivity extends AppCompatActivity {
         if (isScanning) {
             RfidConnectionManager.stopInventoryAsync(() -> {
                 isScanning = false;
-                return Unit.INSTANCE;
             });
         }
         if (cancelled) {
@@ -706,7 +676,7 @@ public class InventoryScanActivity extends AppCompatActivity {
     }
 
     private void updateRfidUi() {
-        boolean connected = rfidManager.isConnected();
+        boolean connected = RfidConnectionManager.isConnected();
         dotRfidStatus.setBackgroundResource(connected ? R.drawable.bg_dot_green : R.drawable.bg_dot_red);
         dotRfidStatus.setContentDescription(getString(
                 connected ? R.string.main_rfid_status_connected : R.string.main_rfid_status_disconnected));

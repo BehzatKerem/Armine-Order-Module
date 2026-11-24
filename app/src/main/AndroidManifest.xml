@@ -6,6 +6,12 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Android 11+ paket gorunurlugu: Chainway Keyboard Emulator'un kurulu olup olmadigini
+         kontrol etmek icin (RfidDeviceDetector.CHAINWAY_SCANNER_PACKAGE). -->
+    <queries>
+        <package android:name="com.rscja.scanner" />
+    </queries>
+
     <application
         android:name=".ArmineApplication"
         android:allowBackup="true"

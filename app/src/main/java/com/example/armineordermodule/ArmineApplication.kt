@@ -24,9 +24,10 @@ class ArmineApplication : Application() {
 
         AppUpdateChecker.start()
 
+        RfidConnectionManager.init(this)
         RfidPreferences.enableAutoConnectOnce(this)
         if (RfidPreferences.isRfidEnabled(this)) {
-            RfidConnectionManager.autoReconnectIfNeededAsync(this) { result ->
+            RfidConnectionManager.autoReconnectIfNeededAsync { result ->
                 if (result is ConnectResult.Failure) {
                     Toast.makeText(
                         this,
