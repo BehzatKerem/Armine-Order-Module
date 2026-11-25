@@ -23,6 +23,7 @@ public class WarehouseTransferListActivity extends AppCompatActivity
 
     private TextView tvEmptyHint;
     private WarehouseTransferListAdapter adapter;
+    private boolean sending;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,7 +58,7 @@ public class WarehouseTransferListActivity extends AppCompatActivity
 
     @Override
     public void onOpenTransfer(WarehouseTransfer transfer) {
-        if (transfer == null || TextUtils.isEmpty(transfer.transferGuid)) {
+        if (transfer == null || TextUtils.isEmpty(transfer.transferGuid) || sending) {
             return;
         }
         if (transfer.isNebimSend) {
@@ -70,8 +71,59 @@ public class WarehouseTransferListActivity extends AppCompatActivity
     }
 
     @Override
+    public void onSendTransfer(WarehouseTransfer transfer) {
+        if (transfer == null || TextUtils.isEmpty(transfer.transferGuid) || sending) {
+            return;
+        }
+        if (transfer.isNebimSend) {
+            Toast.makeText(this, R.string.warehouse_transfer_sent_locked, Toast.LENGTH_LONG).show();
+            return;
+        }
+        // Liste ekrani acikken kayit degismis olabilir; en guncel hali gonderilir.
+        WarehouseTransfer latest = WarehouseTransferStore.findByGuid(this, transfer.transferGuid);
+        if (latest == null) {
+            refreshTransfers();
+            return;
+        }
+
+        sending = true;
+        adapter.setSendingEnabled(false);
+        Toast.makeText(this, R.string.warehouse_transfer_sending, Toast.LENGTH_SHORT).show();
+        WarehouseTransferSender.send(this, latest, new WarehouseTransferSender.Callback() {
+            @Override
+            public void onSuccess(WarehouseTransferCreateApiClient.CreateResult result,
+                                  WarehouseTransfer saved) {
+                finishSending();
+                String message = result != null && !TextUtils.isEmpty(result.message)
+                        ? result.message
+                        : getString(R.string.warehouse_transfer_sent_fallback);
+                Toast.makeText(WarehouseTransferListActivity.this, message, Toast.LENGTH_LONG).show();
+            }
+
+            @Override
+            public void onError(String message, WarehouseTransfer saved) {
+                finishSending();
+                Toast.makeText(WarehouseTransferListActivity.this,
+                        !TextUtils.isEmpty(message)
+                                ? message
+                                : getString(R.string.warehouse_transfer_send_failed),
+                        Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void finishSending() {
+        sending = false;
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        adapter.setSendingEnabled(true);
+        refreshTransfers();
+    }
+
+    @Override
     public void onDeleteTransfer(WarehouseTransfer transfer) {
-        if (transfer == null || TextUtils.isEmpty(transfer.transferGuid)) {
+        if (transfer == null || TextUtils.isEmpty(transfer.transferGuid) || sending) {
             return;
         }
         if (transfer.isNebimSend) {

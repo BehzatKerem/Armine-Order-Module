@@ -246,13 +246,13 @@ public class RfidHandheldCountingScanActivity extends AppCompatActivity {
                 location.epcs.remove(normalized);
                 return;
             }
+            RfidConnectionManager.playBeep();
             if (!location.epcs.contains(normalized)) {
                 location.epcs.add(normalized);
             }
             renderEpcs();
             clearError();
         });
-        RfidConnectionManager.playBeep();
         return false;
     }
 

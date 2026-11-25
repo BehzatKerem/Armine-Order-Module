@@ -24,12 +24,17 @@ public class WarehouseTransferListAdapter extends RecyclerView.Adapter<Warehouse
         void onOpenTransfer(WarehouseTransfer transfer);
 
         void onDeleteTransfer(WarehouseTransfer transfer);
+
+        /** Kayitli (gonderilmemis ya da gonderilemedi) transferi Nebim'e aktarir. */
+        void onSendTransfer(WarehouseTransfer transfer);
     }
 
     private final List<WarehouseTransfer> items = new ArrayList<>();
     private final Listener listener;
     private final SimpleDateFormat dateFormat =
             new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
+    /** Gonderim surerken Aktar butonlari kapali tutulur (cift gonderim olmasin). */
+    private boolean sendingEnabled = true;
 
     public WarehouseTransferListAdapter(Listener listener) {
         this.listener = listener;
@@ -43,6 +48,13 @@ public class WarehouseTransferListAdapter extends RecyclerView.Adapter<Warehouse
         notifyDataSetChanged();
     }
 
+    public void setSendingEnabled(boolean enabled) {
+        if (sendingEnabled != enabled) {
+            sendingEnabled = enabled;
+            notifyDataSetChanged();
+        }
+    }
+
     @NonNull
     @Override
     public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
@@ -53,7 +65,7 @@ public class WarehouseTransferListAdapter extends RecyclerView.Adapter<Warehouse
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        holder.bind(items.get(position), listener, dateFormat);
+        holder.bind(items.get(position), listener, dateFormat, sendingEnabled);
     }
 
     @Override
@@ -65,7 +77,9 @@ public class WarehouseTransferListAdapter extends RecyclerView.Adapter<Warehouse
         private final TextView tvRoute;
         private final TextView tvMeta;
         private final TextView tvSent;
+        private final TextView tvSendFailed;
         private final MaterialButton btnOpen;
+        private final MaterialButton btnSend;
         private final ImageButton btnDelete;
 
         ViewHolder(@NonNull View itemView) {
@@ -73,11 +87,14 @@ public class WarehouseTransferListAdapter extends RecyclerView.Adapter<Warehouse
             tvRoute = itemView.findViewById(R.id.tvTransferRoute);
             tvMeta = itemView.findViewById(R.id.tvTransferMeta);
             tvSent = itemView.findViewById(R.id.tvTransferSent);
+            tvSendFailed = itemView.findViewById(R.id.tvTransferSendFailed);
             btnOpen = itemView.findViewById(R.id.btnOpenTransfer);
+            btnSend = itemView.findViewById(R.id.btnSendTransfer);
             btnDelete = itemView.findViewById(R.id.btnDeleteTransfer);
         }
 
-        void bind(WarehouseTransfer transfer, Listener listener, SimpleDateFormat dateFormat) {
+        void bind(WarehouseTransfer transfer, Listener listener, SimpleDateFormat dateFormat,
+                  boolean sendingEnabled) {
             String source = label(transfer.sourceDescription, transfer.warehouseCode);
             String target = label(transfer.targetDescription, transfer.toWarehouseCode);
             tvRoute.setText(itemView.getContext().getString(
@@ -92,6 +109,30 @@ public class WarehouseTransferListAdapter extends RecyclerView.Adapter<Warehouse
             tvSent.setVisibility(sent ? View.VISIBLE : View.GONE);
             btnOpen.setVisibility(sent ? View.GONE : View.VISIBLE);
             btnDelete.setVisibility(sent ? View.GONE : View.VISIBLE);
+
+            boolean failed = transfer.hasSendFailed();
+            if (failed) {
+                String text = transfer.lastSendAttemptMillis > 0
+                        ? itemView.getContext().getString(
+                                R.string.warehouse_transfer_list_send_failed_badge_time,
+                                dateFormat.format(new Date(transfer.lastSendAttemptMillis)),
+                                transfer.lastSendError)
+                        : itemView.getContext().getString(
+                                R.string.warehouse_transfer_list_send_failed_badge,
+                                transfer.lastSendError);
+                tvSendFailed.setText(text);
+            }
+            tvSendFailed.setVisibility(failed ? View.VISIBLE : View.GONE);
+            btnSend.setVisibility(sent ? View.GONE : View.VISIBLE);
+            btnSend.setText(failed
+                    ? R.string.warehouse_transfer_list_resend
+                    : R.string.warehouse_transfer_list_send);
+            btnSend.setEnabled(sendingEnabled);
+            btnSend.setOnClickListener(v -> {
+                if (listener != null) {
+                    listener.onSendTransfer(transfer);
+                }
+            });
 
             View.OnClickListener openClick = v -> {
                 if (listener != null) {

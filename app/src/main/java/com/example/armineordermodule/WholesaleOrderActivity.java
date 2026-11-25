@@ -353,12 +353,12 @@ public class WholesaleOrderActivity extends AppCompatActivity {
                 }
                 return;
             }
+            RfidConnectionManager.playBeep();
             addEpcLine(normalized);
             renderLines();
             updateTotalTagCountUi();
             clearError();
         });
-        RfidConnectionManager.playBeep();
         return false;
     }
 

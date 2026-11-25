@@ -24,9 +24,19 @@ public class WarehouseTransfer {
     public int headerId;
     /** Nebim aktarimi tamamlandi. alreadySent yaniti da bunu true yapar. */
     public boolean isNebimSend;
+    /**
+     * Son gonderim denemesinin hata mesaji. Bos degilse ve isNebimSend false ise transfer
+     * "gonderilemedi" durumundadir; listeden ayni transferGuid ile tekrar aktarilir.
+     */
+    public String lastSendError = "";
+    public long lastSendAttemptMillis;
     /** Transferi olusturan kullanici ({@link AuthPreferences#getOwnerKey}). Store doldurur. */
     public String ownerUserId = "";
     public final List<String> epcs = new ArrayList<>();
+
+    public boolean hasSendFailed() {
+        return !isNebimSend && lastSendError != null && !lastSendError.isEmpty();
+    }
 
     public int productCount() {
         return epcs.size();
@@ -45,6 +55,8 @@ public class WarehouseTransfer {
         json.put("headerId", headerId);
         json.put("isNebimSend", isNebimSend);
         json.put("ownerUserId", ownerUserId != null ? ownerUserId : "");
+        json.put("lastSendError", lastSendError != null ? lastSendError : "");
+        json.put("lastSendAttemptMillis", lastSendAttemptMillis);
 
         JSONArray epcsJson = new JSONArray();
         for (String epc : epcs) {
@@ -72,6 +84,8 @@ public class WarehouseTransfer {
         transfer.headerId = json.optInt("headerId", 0);
         transfer.isNebimSend = json.optBoolean("isNebimSend", false);
         transfer.ownerUserId = json.optString("ownerUserId", "");
+        transfer.lastSendError = json.optString("lastSendError", "");
+        transfer.lastSendAttemptMillis = json.optLong("lastSendAttemptMillis", 0L);
 
         JSONArray epcsJson = json.optJSONArray("epcs");
         if (epcsJson != null) {

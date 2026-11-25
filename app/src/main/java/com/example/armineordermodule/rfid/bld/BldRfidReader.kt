@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.example.armineordermodule.rfid.ConnectResult
+import com.example.armineordermodule.rfid.RfidFeedback
 import com.example.armineordermodule.rfid.RfidReader
 import com.example.armineordermodule.rfid.RfidReaderType
 import com.example.armineordermodule.rfid.RfidTag
@@ -97,6 +98,9 @@ internal class BldRfidReader(private val context: Context) : RfidReader {
 
             if (finalResult == RESULT_OK) {
                 product = uhf
+                // BLD'de bip, ses uygulama acilisinda yuklenince calmadi. Eski (calisan)
+                // surumde ses baglantidan sonra yukleniyordu; ayni sirayi koruyoruz.
+                RfidFeedback.reload()
                 return ConnectResult.Success
             }
 

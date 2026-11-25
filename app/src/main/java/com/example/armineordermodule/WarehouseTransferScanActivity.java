@@ -74,6 +74,8 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     private long createdAtMillis;
     private int headerId;
     private boolean nebimSent;
+    private String lastSendError = "";
+    private long lastSendAttemptMillis;
     private boolean sending;
     private final List<String> epcs = new ArrayList<>();
     private final Set<String> acceptedEpcs = new LinkedHashSet<>();
@@ -194,6 +196,8 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         createdAtMillis = transfer.createdAtMillis;
         headerId = transfer.headerId;
         nebimSent = transfer.isNebimSend;
+        lastSendError = transfer.lastSendError != null ? transfer.lastSendError : "";
+        lastSendAttemptMillis = transfer.lastSendAttemptMillis;
         synchronized (scanLock) {
             epcs.clear();
             acceptedEpcs.clear();
@@ -217,6 +221,8 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         transfer.createdAtMillis = createdAtMillis;
         transfer.headerId = headerId;
         transfer.isNebimSend = nebimSent;
+        transfer.lastSendError = lastSendError;
+        transfer.lastSendAttemptMillis = lastSendAttemptMillis;
         synchronized (scanLock) {
             transfer.epcs.addAll(epcs);
         }
@@ -273,7 +279,8 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
 
             @Override
             public boolean isScanLatched() {
-                return cancelScanMode;
+                // Iptal Barkod diyalogunda da tetik ana ekrandaki gibi calisir.
+                return false;
             }
         });
     }
@@ -446,13 +453,21 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
                 .setCancelable(true)
                 .create();
         cancelScanDialog.setCanceledOnTouchOutside(false);
-        cancelScanDialog.setOnShowListener(dialog -> {
-            cancelScanDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
-                    v -> confirmCancelDeletes());
-            if (RfidConnectionManager.isConnected() && !isScanning) {
-                startScanning();
+        // Diyalog acikken tus olaylari Activity'ye degil diyalog penceresine gelir. BLD'de
+        // tetik KeyEvent oldugu icin buradan tetik denetleyicisine aktarilir. Okuma diyalog
+        // acilinca kendiliginden baslamaz; sadece tetikle baslar.
+        cancelScanDialog.setOnKeyListener((dialog, keyCode, event) -> {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                return rfidTrigger.onKeyDown(keyCode, event);
             }
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                return rfidTrigger.onKeyUp(keyCode, event);
+            }
+            return false;
         });
+        cancelScanDialog.setOnShowListener(dialog ->
+                cancelScanDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(
+                        v -> confirmCancelDeletes()));
         cancelScanDialog.show();
     }
 
@@ -570,89 +585,68 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             showError(getString(R.string.warehouse_transfer_sent_locked));
             return;
         }
+        // Once cihaza kaydedilir: gonderim basarisiz olsa da okutmalar kaybolmaz.
         WarehouseTransfer transfer = saveLocalDraft();
         if (transfer == null) {
-            return;
-        }
-
-        String serverUrl = ServerPreferences.getServerUrl(this);
-        if (TextUtils.isEmpty(serverUrl)) {
-            showError(getString(R.string.server_url_missing));
-            return;
-        }
-        String token = AuthPreferences.getToken(this);
-        if (TextUtils.isEmpty(token) || !AuthPreferences.hasValidSession(this)) {
-            showError(getString(R.string.warehouses_session_required));
-            return;
-        }
-        String databaseName = AuthPreferences.getDefaultDatabase(this);
-        if (TextUtils.isEmpty(databaseName)) {
-            showError(getString(R.string.warehouses_database_missing));
-            return;
-        }
-        String companyCode = AuthPreferences.getCompanyCode(this);
-        if (TextUtils.isEmpty(companyCode)) {
-            showError(getString(R.string.warehouse_transfer_company_missing));
-            return;
-        }
-
-        JSONObject apiJson;
-        try {
-            apiJson = WarehouseTransferRequest.toApiJson(
-                    transfer.transferGuid,
-                    companyCode,
-                    "",
-                    transfer.officeCode,
-                    transfer.warehouseCode,
-                    transfer.toOfficeCode,
-                    transfer.toWarehouseCode,
-                    databaseName,
-                    transfer.epcs);
-        } catch (JSONException e) {
-            showError(getString(R.string.warehouse_transfer_json_failed));
             return;
         }
 
         clearError();
         sending = true;
         Toast.makeText(this, R.string.warehouse_transfer_sending, Toast.LENGTH_SHORT).show();
-        WarehouseTransferCreateApiClient.create(serverUrl, token, apiJson,
-                new WarehouseTransferCreateApiClient.Callback() {
-                    @Override
-                    public void onSuccess(WarehouseTransferCreateApiClient.CreateResult result) {
-                        sending = false;
-                        nebimSent = true;
-                        if (result != null && result.headerId > 0) {
-                            headerId = result.headerId;
-                        }
-                        if (result != null && !TextUtils.isEmpty(result.transferGuid)) {
-                            transferGuid = result.transferGuid;
-                        }
-                        WarehouseTransferStore.upsert(WarehouseTransferScanActivity.this, currentTransfer());
-                        if (isFinishing()) {
-                            return;
-                        }
-                        String message = result != null && !TextUtils.isEmpty(result.message)
-                                ? result.message
-                                : getString(R.string.warehouse_transfer_sent_fallback);
-                        Intent intent = new Intent(
-                                WarehouseTransferScanActivity.this, WarehouseTransferListActivity.class);
-                        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                        startActivity(intent);
-                        finish();
-                    }
+        WarehouseTransferSender.send(this, transfer, new WarehouseTransferSender.Callback() {
+            @Override
+            public void onSuccess(WarehouseTransferCreateApiClient.CreateResult result,
+                                  WarehouseTransfer saved) {
+                sending = false;
+                nebimSent = true;
+                lastSendError = "";
+                if (saved != null) {
+                    headerId = saved.headerId;
+                    lastSendAttemptMillis = saved.lastSendAttemptMillis;
+                }
+                if (isFinishing()) {
+                    return;
+                }
+                String message = result != null && !TextUtils.isEmpty(result.message)
+                        ? result.message
+                        : getString(R.string.warehouse_transfer_sent_fallback);
+                Toast.makeText(WarehouseTransferScanActivity.this, message, Toast.LENGTH_LONG).show();
+                openTransferList();
+            }
 
-                    @Override
-                    public void onError(String message) {
-                        sending = false;
-                        if (isFinishing()) {
-                            return;
-                        }
-                        showError(!TextUtils.isEmpty(message)
-                                ? message
-                                : getString(R.string.warehouse_transfer_send_failed));
-                    }
-                });
+            @Override
+            public void onError(String message, WarehouseTransfer saved) {
+                sending = false;
+                if (saved != null) {
+                    lastSendError = saved.lastSendError;
+                    lastSendAttemptMillis = saved.lastSendAttemptMillis;
+                }
+                if (isFinishing()) {
+                    return;
+                }
+                showSendFailedDialog(message);
+            }
+        });
+    }
+
+    /**
+     * Gonderim hatasi: transfer cihazda "gonderilemedi" olarak kayitli kalir.
+     * Kullanici hemen tekrar deneyebilir ya da listeye donup sonra "Tekrar Aktar" yapar.
+     */
+    private void showSendFailedDialog(String message) {
+        String reason = !TextUtils.isEmpty(message)
+                ? message
+                : getString(R.string.warehouse_transfer_send_failed);
+        showError(reason);
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.warehouse_transfer_send_failed_title)
+                .setMessage(getString(R.string.warehouse_transfer_send_failed_saved_message, reason))
+                .setPositiveButton(R.string.warehouse_transfer_retry_now, (dialog, which) -> saveAndSend())
+                .setNegativeButton(R.string.warehouse_transfer_back_to_list,
+                        (dialog, which) -> leaveScanScreen())
+                .setNeutralButton(R.string.warehouse_transfer_stay, null)
+                .show();
     }
 
     /** Cihaz kaydı. API gövdesi üretmez; IsCompleted burada yazılmaz. */
