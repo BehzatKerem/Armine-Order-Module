@@ -284,6 +284,10 @@
     <string name="developer_mode_enabled">Geliştirici modu açıldı</string>
     <string name="developer_mode_disabled">Geliştirici modu kapatıldı</string>
     <string name="update_button">Guncelle (%1$s)</string>
+    <string name="update_prompt_title">Yeni sürüm var</string>
+    <string name="update_prompt_message">Sürüm %1$s yayınlandı (cihazdaki: %2$s). İndirip kurmak ister misiniz?</string>
+    <string name="update_prompt_download">İndir</string>
+    <string name="update_prompt_later">Sonra</string>
     <string name="update_downloading">Indiriliyor…</string>
     <string name="update_failed">Guncelleme indirilemedi</string>
     <string name="update_install_permission">Guncellemeyi kurmak icin bu uygulamaya izin verin, sonra Guncelle\'ye tekrar basin</string>

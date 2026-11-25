@@ -47,6 +47,7 @@ public class WholesaleOrderSummaryActivity extends AppCompatActivity {
 
     private boolean fabExpanded = false;
     private boolean sending = false;
+    private SendingDialog sendingDialog;
     private final List<WholesaleOrderProductInfo> products = new ArrayList<>();
 
     @Override
@@ -59,9 +60,18 @@ public class WholesaleOrderSummaryActivity extends AppCompatActivity {
             return;
         }
 
+        sendingDialog = new SendingDialog(this);
         bindViews();
         renderHeader();
         loadProductEnrichment();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (sendingDialog != null) {
+            sendingDialog.dismiss();
+        }
+        super.onDestroy();
     }
 
     private boolean loadOrFail() {
@@ -281,9 +291,8 @@ public class WholesaleOrderSummaryActivity extends AppCompatActivity {
 
         sending = true;
         clearError();
-        tvSummaryLoading.setText(R.string.wholesale_order_sending);
-        showLoading(true);
         fabSummaryActions.setEnabled(false);
+        sendingDialog.show(R.string.wholesale_order_sending);
 
         WholesaleOrderCreateApiClient.create(
                 serverUrl,
@@ -293,8 +302,7 @@ public class WholesaleOrderSummaryActivity extends AppCompatActivity {
                     @Override
                     public void onSuccess(WholesaleOrderCreateApiClient.CreateResult result) {
                         sending = false;
-                        showLoading(false);
-                        tvSummaryLoading.setText(R.string.wholesale_order_summary_loading);
+                        sendingDialog.dismiss();
                         order.markTransferred(
                                 result != null ? result.headerId : 0,
                                 result != null ? result.orderGuid : null,
@@ -310,8 +318,7 @@ public class WholesaleOrderSummaryActivity extends AppCompatActivity {
                     @Override
                     public void onError(String message) {
                         sending = false;
-                        showLoading(false);
-                        tvSummaryLoading.setText(R.string.wholesale_order_summary_loading);
+                        sendingDialog.dismiss();
                         fabSummaryActions.setEnabled(true);
                         if (!order.isTransferred()) {
                             order.status = WholesaleOrder.STATUS_PENDING_SEND;

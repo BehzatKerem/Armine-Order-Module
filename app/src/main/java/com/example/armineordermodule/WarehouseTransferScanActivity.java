@@ -77,6 +77,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     private String lastSendError = "";
     private long lastSendAttemptMillis;
     private boolean sending;
+    private SendingDialog sendingDialog;
     private final List<String> epcs = new ArrayList<>();
     private final Set<String> acceptedEpcs = new LinkedHashSet<>();
     private final LinkedHashSet<String> pendingCancelEpcs = new LinkedHashSet<>();
@@ -89,6 +90,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_warehouse_transfer_scan);
         rfidTrigger = createRfidTrigger();
+        sendingDialog = new SendingDialog(this);
 
         ImageButton btnBack = findViewById(R.id.btnBack);
         TextView tvTransferRoute = findViewById(R.id.tvTransferRoute);
@@ -248,6 +250,9 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         dismissCancelScanDialog(false);
+        if (sendingDialog != null) {
+            sendingDialog.dismiss();
+        }
         if (isScanning) {
             RfidConnectionManager.stopInventoryAsync(null);
         }
@@ -622,12 +627,16 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
 
         clearError();
         sending = true;
-        Toast.makeText(this, R.string.warehouse_transfer_sending, Toast.LENGTH_SHORT).show();
+        if (isScanning) {
+            stopScanning();
+        }
+        sendingDialog.show(R.string.warehouse_transfer_sending);
         WarehouseTransferSender.send(this, transfer, new WarehouseTransferSender.Callback() {
             @Override
             public void onSuccess(WarehouseTransferCreateApiClient.CreateResult result,
                                   WarehouseTransfer saved) {
                 sending = false;
+                sendingDialog.dismiss();
                 nebimSent = true;
                 lastSendError = "";
                 if (saved != null) {
@@ -647,6 +656,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             @Override
             public void onError(String message, WarehouseTransfer saved) {
                 sending = false;
+                sendingDialog.dismiss();
                 if (saved != null) {
                     lastSendError = saved.lastSendError;
                     lastSendAttemptMillis = saved.lastSendAttemptMillis;
