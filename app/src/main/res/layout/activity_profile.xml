@@ -125,6 +125,18 @@
             android:gravity="center"
             android:textColor="@color/login_subtitle"
             android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tvDeveloperMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center"
+            android:text="@string/developer_mode_active_label"
+            android:textColor="#B3261E"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
     </LinearLayout>
 
 </LinearLayout>

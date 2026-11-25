@@ -137,6 +137,14 @@ public final class WholesaleOrderStore {
      * @return true silindiyse
      */
     public static boolean delete(Context context, String localId) {
+        return delete(context, localId, false);
+    }
+
+    /**
+     * @param allowSent true ise aktarilmis fisin cihazdaki kaydi da silinir
+     *                  (sadece gelistirici modu). Nebim'deki kayda dokunulmaz.
+     */
+    public static boolean delete(Context context, String localId, boolean allowSent) {
         if (TextUtils.isEmpty(localId)) {
             return false;
         }
@@ -144,7 +152,7 @@ public final class WholesaleOrderStore {
         for (int i = 0; i < orders.size(); i++) {
             WholesaleOrder order = orders.get(i);
             if (localId.equals(order.localId)) {
-                if (order.isTransferred() || !isOwnedByCurrentUser(context, order)) {
+                if ((order.isTransferred() && !allowSent) || !isOwnedByCurrentUser(context, order)) {
                     return false;
                 }
                 orders.remove(i);

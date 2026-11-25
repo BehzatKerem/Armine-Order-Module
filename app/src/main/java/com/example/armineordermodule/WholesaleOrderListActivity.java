@@ -27,7 +27,7 @@ import java.util.List;
  * Bkz. docs/TOPTAN_SIPARIS.md.
  */
 public class WholesaleOrderListActivity extends AppCompatActivity
-        implements WholesaleOrderListAdapter.Listener {
+        implements WholesaleOrderListAdapter.Listener, WholesaleOrderSentListAdapter.Listener {
 
     private static final String TAG = "WholesaleOrderList";
 
@@ -58,7 +58,7 @@ public class WholesaleOrderListActivity extends AppCompatActivity
         rvPendingOrders.setAdapter(pendingAdapter);
         rvPendingOrders.setNestedScrollingEnabled(false);
 
-        sentAdapter = new WholesaleOrderSentListAdapter();
+        sentAdapter = new WholesaleOrderSentListAdapter(this);
         rvSentOrders.setLayoutManager(new LinearLayoutManager(this));
         rvSentOrders.setAdapter(sentAdapter);
         rvSentOrders.setNestedScrollingEnabled(false);
@@ -86,6 +86,7 @@ public class WholesaleOrderListActivity extends AppCompatActivity
         }
 
         pendingAdapter.submitList(pending);
+        sentAdapter.setDeveloperMode(DeveloperModePreferences.isEnabled(this));
         sentAdapter.submitList(sent);
 
         tvEmptyPendingHint.setVisibility(pending.isEmpty() ? View.VISIBLE : View.GONE);
@@ -250,6 +251,29 @@ public class WholesaleOrderListActivity extends AppCompatActivity
                 .setPositiveButton(R.string.wholesale_order_list_delete, (dialog, which) -> {
                     WholesaleOrderStore.delete(this, order.localId);
                     Toast.makeText(this, R.string.wholesale_order_list_deleted, Toast.LENGTH_SHORT).show();
+                    refreshOrders();
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** Gelistirici modu: aktarilmis fisin sadece cihazdaki kaydini siler. */
+    @Override
+    public void onDeleteSentOrder(WholesaleOrder order) {
+        if (order == null || sending || !DeveloperModePreferences.isEnabled(this)) {
+            return;
+        }
+        String customer = !TextUtils.isEmpty(order.customerDescription)
+                ? order.customerDescription
+                : order.customerCode;
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.wholesale_order_list_delete_title)
+                .setMessage(getString(R.string.wholesale_order_list_delete_sent_message)
+                        + (TextUtils.isEmpty(customer) ? "" : "\n\n" + customer))
+                .setPositiveButton(R.string.wholesale_order_list_delete, (dialog, which) -> {
+                    if (WholesaleOrderStore.delete(this, order.localId, true)) {
+                        Toast.makeText(this, R.string.wholesale_order_list_deleted, Toast.LENGTH_SHORT).show();
+                    }
                     refreshOrders();
                 })
                 .setNegativeButton(android.R.string.cancel, null)

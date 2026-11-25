@@ -35,6 +35,8 @@ public class WarehouseTransferListAdapter extends RecyclerView.Adapter<Warehouse
             new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault());
     /** Gonderim surerken Aktar butonlari kapali tutulur (cift gonderim olmasin). */
     private boolean sendingEnabled = true;
+    /** Gelistirici modunda gonderilmis transferlerde de sil butonu gorunur. */
+    private boolean developerMode;
 
     public WarehouseTransferListAdapter(Listener listener) {
         this.listener = listener;
@@ -46,6 +48,13 @@ public class WarehouseTransferListAdapter extends RecyclerView.Adapter<Warehouse
             items.addAll(transfers);
         }
         notifyDataSetChanged();
+    }
+
+    public void setDeveloperMode(boolean enabled) {
+        if (developerMode != enabled) {
+            developerMode = enabled;
+            notifyDataSetChanged();
+        }
     }
 
     public void setSendingEnabled(boolean enabled) {
@@ -65,7 +74,7 @@ public class WarehouseTransferListAdapter extends RecyclerView.Adapter<Warehouse
 
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
-        holder.bind(items.get(position), listener, dateFormat, sendingEnabled);
+        holder.bind(items.get(position), listener, dateFormat, sendingEnabled, developerMode);
     }
 
     @Override
@@ -94,7 +103,7 @@ public class WarehouseTransferListAdapter extends RecyclerView.Adapter<Warehouse
         }
 
         void bind(WarehouseTransfer transfer, Listener listener, SimpleDateFormat dateFormat,
-                  boolean sendingEnabled) {
+                  boolean sendingEnabled, boolean developerMode) {
             String source = label(transfer.sourceDescription, transfer.warehouseCode);
             String target = label(transfer.targetDescription, transfer.toWarehouseCode);
             tvRoute.setText(itemView.getContext().getString(
@@ -107,10 +116,11 @@ public class WarehouseTransferListAdapter extends RecyclerView.Adapter<Warehouse
                     R.string.warehouse_transfer_item_meta, transfer.productCount(), date));
             boolean sent = transfer.isNebimSend;
             tvSent.setVisibility(sent ? View.VISIBLE : View.GONE);
-            btnOpen.setVisibility(sent ? View.GONE : View.VISIBLE);
-            btnDelete.setVisibility(sent ? View.GONE : View.VISIBLE);
-
             boolean failed = transfer.hasSendFailed();
+            // Hata almis transfer duzenlenemez; sadece tekrar aktarilir.
+            btnOpen.setVisibility(sent || failed ? View.GONE : View.VISIBLE);
+            btnDelete.setVisibility(sent && !developerMode ? View.GONE : View.VISIBLE);
+
             if (failed) {
                 String text = transfer.lastSendAttemptMillis > 0
                         ? itemView.getContext().getString(

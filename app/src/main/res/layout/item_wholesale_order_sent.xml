@@ -40,6 +40,18 @@
             android:text="@string/wholesale_order_status_sent"
             android:textColor="@color/white"
             android:textSize="11sp" />
+
+        <ImageButton
+            android:id="@+id/btnDeleteSentOrder"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/wholesale_order_list_delete"
+            android:padding="8dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/ic_delete"
+            android:visibility="gone" />
     </LinearLayout>
 
     <TextView

@@ -51,6 +51,7 @@ public class WarehouseTransferListActivity extends AppCompatActivity
     }
 
     private void refreshTransfers() {
+        adapter.setDeveloperMode(DeveloperModePreferences.isEnabled(this));
         List<WarehouseTransfer> transfers = WarehouseTransferStore.getAll(this);
         adapter.submitList(transfers);
         tvEmptyHint.setVisibility(transfers.isEmpty() ? View.VISIBLE : View.GONE);
@@ -63,6 +64,10 @@ public class WarehouseTransferListActivity extends AppCompatActivity
         }
         if (transfer.isNebimSend) {
             Toast.makeText(this, R.string.warehouse_transfer_sent_locked, Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (transfer.hasSendFailed()) {
+            Toast.makeText(this, R.string.warehouse_transfer_failed_locked, Toast.LENGTH_LONG).show();
             return;
         }
         Intent intent = new Intent(this, WarehouseTransferScanActivity.class);
@@ -126,7 +131,8 @@ public class WarehouseTransferListActivity extends AppCompatActivity
         if (transfer == null || TextUtils.isEmpty(transfer.transferGuid) || sending) {
             return;
         }
-        if (transfer.isNebimSend) {
+        boolean developerDelete = transfer.isNebimSend && DeveloperModePreferences.isEnabled(this);
+        if (transfer.isNebimSend && !developerDelete) {
             Toast.makeText(this, R.string.warehouse_transfer_sent_locked, Toast.LENGTH_LONG).show();
             return;
         }
@@ -137,9 +143,11 @@ public class WarehouseTransferListActivity extends AppCompatActivity
         String route = getString(R.string.warehouse_transfer_scan_route, source, target);
         new AlertDialog.Builder(this)
                 .setTitle(R.string.warehouse_transfer_list_delete_title)
-                .setMessage(getString(R.string.warehouse_transfer_list_delete_message, route))
+                .setMessage(getString(developerDelete
+                        ? R.string.warehouse_transfer_list_delete_sent_message
+                        : R.string.warehouse_transfer_list_delete_message, route))
                 .setPositiveButton(R.string.warehouse_transfer_list_delete, (dialog, which) -> {
-                    WarehouseTransferStore.delete(this, transfer.transferGuid);
+                    WarehouseTransferStore.delete(this, transfer.transferGuid, developerDelete);
                     Toast.makeText(this, R.string.warehouse_transfer_list_deleted, Toast.LENGTH_SHORT).show();
                     refreshTransfers();
                 })

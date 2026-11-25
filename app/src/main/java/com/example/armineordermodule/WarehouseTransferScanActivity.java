@@ -121,6 +121,11 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             finish();
             return;
         }
+        if (!TextUtils.isEmpty(lastSendError)) {
+            Toast.makeText(this, R.string.warehouse_transfer_failed_locked, Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
         tvTransferRoute.setText(getString(
                 R.string.warehouse_transfer_scan_route, sourceDescription, targetDescription));
 
@@ -285,7 +290,20 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         });
     }
 
+    /**
+     * Gonderim surerken ya da gonderim hata aldiktan sonra transfer degistirilemez.
+     * Ilk istek sunucuya ulasmis olabilir; tekrar gonderimde alreadySent doner ve sonradan
+     * eklenen urunler gitmez. Bu yuzden hata almis transfer sadece tekrar aktarilir.
+     */
+    private boolean isEditLocked() {
+        return sending || !TextUtils.isEmpty(lastSendError);
+    }
+
     private void startScanning() {
+        if (isEditLocked()) {
+            showError(getString(R.string.warehouse_transfer_failed_locked));
+            return;
+        }
         RfidConnectionManager.startInventoryAsync(
                 tag -> {
                     if (cancelScanMode) {
@@ -304,6 +322,9 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     }
 
     private boolean handleLiveTagRead(String epc) {
+        if (isEditLocked()) {
+            return false;
+        }
         if (cancelScanMode) {
             return handleCancelScanTag(epc);
         }
@@ -414,6 +435,10 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     }
 
     private void showCancelBarcodeDialog() {
+        if (isEditLocked()) {
+            showError(getString(R.string.warehouse_transfer_failed_locked));
+            return;
+        }
         if (cancelScanDialog != null && cancelScanDialog.isShowing()) {
             return;
         }
@@ -569,6 +594,10 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
 
     private void saveDraft() {
         setFabMenuExpanded(false);
+        if (isEditLocked()) {
+            showError(getString(R.string.warehouse_transfer_failed_locked));
+            return;
+        }
         if (saveLocalDraft() == null) {
             return;
         }
@@ -633,6 +662,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     /**
      * Gonderim hatasi: transfer cihazda "gonderilemedi" olarak kayitli kalir.
      * Kullanici hemen tekrar deneyebilir ya da listeye donup sonra "Tekrar Aktar" yapar.
+     * Transfer artik duzenlenemez (bkz. isEditLocked), bu yuzden ekranda kalma secenegi yok.
      */
     private void showSendFailedDialog(String message) {
         String reason = !TextUtils.isEmpty(message)
@@ -645,7 +675,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
                 .setPositiveButton(R.string.warehouse_transfer_retry_now, (dialog, which) -> saveAndSend())
                 .setNegativeButton(R.string.warehouse_transfer_back_to_list,
                         (dialog, which) -> leaveScanScreen())
-                .setNeutralButton(R.string.warehouse_transfer_stay, null)
+                .setCancelable(false)
                 .show();
     }
 

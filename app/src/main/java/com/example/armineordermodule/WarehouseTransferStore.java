@@ -116,6 +116,14 @@ public final class WarehouseTransferStore {
     }
 
     public static boolean delete(Context context, String transferGuid) {
+        return delete(context, transferGuid, false);
+    }
+
+    /**
+     * @param allowSent true ise Nebim'e gonderilmis transferin cihazdaki kaydi da silinir
+     *                  (sadece gelistirici modu). Nebim'deki kayda dokunulmaz.
+     */
+    public static boolean delete(Context context, String transferGuid, boolean allowSent) {
         if (TextUtils.isEmpty(transferGuid)) {
             return false;
         }
@@ -123,7 +131,7 @@ public final class WarehouseTransferStore {
         List<WarehouseTransfer> transfers = loadAll(context);
         for (int i = 0; i < transfers.size(); i++) {
             if (transferGuid.equals(transfers.get(i).transferGuid)) {
-                if (transfers.get(i).isNebimSend || !owner.equals(transfers.get(i).ownerUserId)) {
+                if ((transfers.get(i).isNebimSend && !allowSent) || !owner.equals(transfers.get(i).ownerUserId)) {
                     return false;
                 }
                 transfers.remove(i);

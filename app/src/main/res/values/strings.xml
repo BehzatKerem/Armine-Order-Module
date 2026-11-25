@@ -58,6 +58,7 @@
     <string name="warehouse_transfer_list_delete">Transferi sil</string>
     <string name="warehouse_transfer_list_delete_title">Transferi sil</string>
     <string name="warehouse_transfer_list_delete_message">Bu kaydı silmek istediğinize emin misiniz?\n\n%1$s</string>
+    <string name="warehouse_transfer_list_delete_sent_message">Geliştirici modu: Bu transfer Nebim\'e gönderilmiş. Sadece cihazdaki kayıt silinir, Nebim\'deki transfer silinmez. Emin misiniz?\n\n%1$s</string>
     <string name="warehouse_transfer_list_deleted">Transfer silindi</string>
     <string name="warehouse_transfer_item_meta">%1$d ürün • %2$s</string>
     <string name="warehouse_transfer_list_send">Aktar</string>
@@ -65,10 +66,10 @@
     <string name="warehouse_transfer_list_send_failed_badge">Gönderilemedi: %1$s</string>
     <string name="warehouse_transfer_list_send_failed_badge_time">Gönderilemedi (%1$s): %2$s</string>
     <string name="warehouse_transfer_send_failed_title">Transfer gönderilemedi</string>
-    <string name="warehouse_transfer_send_failed_saved_message">%1$s\n\nTransfer cihazda kaydedildi. İnternet bağlantısı gelince şimdi tekrar deneyebilir ya da listeden \"Tekrar Aktar\" ile gönderebilirsiniz.</string>
+    <string name="warehouse_transfer_send_failed_saved_message">%1$s\n\nTransfer cihazda kaydedildi ve artık düzenlenemez. İnternet bağlantısı gelince şimdi tekrar deneyebilir ya da listeden \"Tekrar Aktar\" ile gönderebilirsiniz.</string>
     <string name="warehouse_transfer_retry_now">Tekrar Dene</string>
     <string name="warehouse_transfer_back_to_list">Listeye Dön</string>
-    <string name="warehouse_transfer_stay">Kal</string>
+    <string name="warehouse_transfer_failed_locked">Gönderilemeyen transfer düzenlenemez. Listeden \"Tekrar Aktar\" ile gönderin.</string>
     <string name="warehouse_transfer_not_found">Kayıtlı transfer bulunamadı.</string>
     <string name="menu_rfid_counting">RFID Sayım</string>
     <string name="menu_rfid_scan">RFID Tarama (Test)</string>
@@ -279,6 +280,9 @@
     <string name="profile_database_label">Varsayilan veritabani</string>
     <string name="profile_logout">Cikis Yap</string>
     <string name="profile_version">Surum %1$s</string>
+    <string name="developer_mode_active_label">Geliştirici modu açık</string>
+    <string name="developer_mode_enabled">Geliştirici modu açıldı</string>
+    <string name="developer_mode_disabled">Geliştirici modu kapatıldı</string>
     <string name="update_button">Guncelle (%1$s)</string>
     <string name="update_downloading">Indiriliyor…</string>
     <string name="update_failed">Guncelleme indirilemedi</string>
@@ -332,6 +336,7 @@
     <string name="wholesale_order_list_delete">Fişi sil</string>
     <string name="wholesale_order_list_delete_title">Fişi sil</string>
     <string name="wholesale_order_list_delete_message">Bu aktarılmamış fişi silmek istediğinize emin misiniz?</string>
+    <string name="wholesale_order_list_delete_sent_message">Geliştirici modu: Bu fiş NebimV3\'e aktarılmış. Sadece cihazdaki kayıt silinir, Nebim\'deki sipariş silinmez. Emin misiniz?</string>
     <string name="wholesale_order_list_deleted">Fiş silindi</string>
     <string name="wholesale_order_list_transfer_empty">Aktarmak için en az bir ürün olmalı.</string>
     <string name="wholesale_order_list_transfer_warehouse">Aktarmak için depo seçili olmalı. Fişi açıp kontrol edin.</string>
