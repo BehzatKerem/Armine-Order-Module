@@ -1,8 +1,13 @@
 package com.example.armineordermodule;
 
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
+import android.util.Log;
 import android.text.TextUtils;
 import android.view.KeyEvent;
 import android.view.View;
@@ -34,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 
 /**
@@ -58,6 +64,16 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     private static final String STATE_TRANSFER = "state_transfer";
     private static final String JSON_LOG_TAG = "WAREHOUSE_TRANSFER";
     private static final long DUPLICATE_WARNING_THROTTLE_MS = 2500L;
+    /** Liste en fazla bu aralikla yeniden cizilir (docs/chainway-rfid.md: 200-500 ms). */
+    private static final long RENDER_INTERVAL_MS = 300L;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final AtomicBoolean renderScheduled = new AtomicBoolean(false);
+    private final AtomicBoolean newTagsSinceRender = new AtomicBoolean(false);
+    /** Ana thread'de yazilir (renderEpcs), okuyucu thread'inde okunur. */
+    private volatile long lastRenderAtMs;
+    private final Runnable renderRunnable = this::runScheduledRender;
+    /** Diger transferlerin EPC'leri -> transfer. Kurulana kadar null (kayda bakilir). */
+    private volatile Map<String, WarehouseTransfer> otherTransferEpcIndex;
     private long lastDuplicateWarningAtMs;
     private RfidTriggerController rfidTrigger;
 
@@ -183,6 +199,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             finish();
             return;
         }
+        buildOtherTransferEpcIndexAsync();
         tvTransferRoute.setText(getString(
                 R.string.warehouse_transfer_scan_route, sourceDescription, targetDescription));
 
@@ -322,6 +339,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        mainHandler.removeCallbacks(renderRunnable);
         dismissCancelScanDialog(false);
         if (outOfStockDialog != null && outOfStockDialog.isShowing()) {
             outOfStockDialog.dismiss();
@@ -435,8 +453,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             return false;
         }
 
-        WarehouseTransfer otherTransfer = WarehouseTransferStore.findOtherTransferContainingEpc(
-                this, normalized, transferGuid);
+        WarehouseTransfer otherTransfer = findOtherTransferContainingEpc(normalized);
         if (otherTransfer != null) {
             warnEpcAlreadyInOtherTransfer(otherTransfer);
             return false;
@@ -449,13 +466,72 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             epcs.add(0, normalized);
         }
 
-        runOnUiThread(() -> {
-            renderEpcs();
-            rvEpcs.scrollToPosition(0);
-            clearError();
-        });
+        // Ekran her etikette degil, RENDER_INTERVAL_MS'de bir toplu cizilir.
+        newTagsSinceRender.set(true);
+        scheduleRender();
         RfidConnectionManager.playBeep();
         return false;
+    }
+
+    /**
+     * Okuyucu thread'inden. Indeks hazirsa sabit surede bakar; ekran yeni acildiysa ve indeks
+     * henuz kurulmadiysa eskisi gibi kayda bakar (ayni sonuc, sadece daha yavas).
+     */
+    private WarehouseTransfer findOtherTransferContainingEpc(String epc) {
+        Map<String, WarehouseTransfer> index = otherTransferEpcIndex;
+        if (index != null) {
+            return index.get(epc);
+        }
+        return WarehouseTransferStore.findOtherTransferContainingEpc(this, epc, transferGuid);
+    }
+
+    /**
+     * Diger transferlerin EPC indeksini arka planda kurar. Bu ekran acikken diger transferlerin
+     * EPC'leri degismez (transfer listesi kapali, gonderim EPC'lere dokunmaz); bu yuzden
+     * ekran basinda bir kez kurmak yeterli.
+     */
+    private void buildOtherTransferEpcIndexAsync() {
+        final Context appContext = getApplicationContext();
+        final String excludeGuid = transferGuid;
+        Thread thread = new Thread(() -> {
+            try {
+                otherTransferEpcIndex =
+                        WarehouseTransferStore.buildOtherTransfersEpcIndex(appContext, excludeGuid);
+            } catch (RuntimeException e) {
+                // Indeks yoksa okuma eski yoldan (kayda bakarak) devam eder.
+                Log.w(JSON_LOG_TAG, "Transfer EPC indeksi kurulamadi", e);
+            }
+        }, "transfer-epc-index");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    /**
+     * Herhangi bir thread'den cagrilabilir. Bekleyen cizim varsa yenisi eklenmez; son cizimden
+     * RENDER_INTERVAL_MS gecmisse hemen, gecmemisse kalan sure sonunda cizilir. Boylece ilk
+     * etiket gecikmeden gorunur, sonrakiler toplanir.
+     */
+    private void scheduleRender() {
+        if (!renderScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        long wait = lastRenderAtMs + RENDER_INTERVAL_MS - SystemClock.uptimeMillis();
+        mainHandler.postDelayed(renderRunnable, Math.max(0L, wait));
+    }
+
+    /** Ana thread. */
+    private void runScheduledRender() {
+        // Bayraklar cizimden ONCE sifirlanir: cizim sirasinda gelen etiket yeni bir cizim planlar.
+        renderScheduled.set(false);
+        boolean newTags = newTagsSinceRender.getAndSet(false);
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        renderEpcs();
+        if (newTags) {
+            rvEpcs.scrollToPosition(0);
+            clearError();
+        }
     }
 
     private String otherTransferEpcMessage(WarehouseTransfer otherTransfer) {
@@ -534,13 +610,16 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
 
     // --- Urun / stok sorgusu (ana thread) ---
 
-    /** Listede olup sorgusu hic baslatilmamis barkodlar icin sorgu acar. */
-    private void ensureLookups(Set<String> barcodes) {
+    /** Listede olup sorgusu hic baslatilmamis barkodlar icin sorgu acar. Actiysa true. */
+    private boolean ensureLookups(Set<String> barcodes) {
+        boolean started = false;
         for (String barcode : barcodes) {
             if (!lookups.containsKey(barcode)) {
                 requestLookup(barcode);
+                started = true;
             }
         }
+        return started;
     }
 
     /** Hata almis sorgulari tekrar baslatir. Tekrar baslatilan varsa true. */
@@ -595,7 +674,8 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
                         if (product.shouldRemoveFromTransfer()) {
                             removeRejectedProduct(barcode, product);
                         }
-                        renderEpcs();
+                        // Cok farkli urun okutulunca sonuclar sik gelir; cizim toplanir.
+                        scheduleRender();
                     }
 
                     @Override
@@ -604,7 +684,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
                             return;
                         }
                         failLookup(lookup, message);
-                        renderEpcs();
+                        scheduleRender();
                     }
                 });
     }
@@ -995,7 +1075,9 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         }
     }
 
+    /** Ana thread. Okuma sirasinda dogrudan degil {@link #scheduleRender} uzerinden cagrilir. */
     private void renderEpcs() {
+        lastRenderAtMs = SystemClock.uptimeMillis();
         List<String> snapshot;
         synchronized (scanLock) {
             snapshot = new ArrayList<>(epcs);
@@ -1007,9 +1089,11 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
                 barcodes.add(row.barcode);
             }
         }
-        ensureLookups(barcodes);
-        // ensureLookups durum degistirmis olabilir (ör. oturum yok -> hata); satirlari tazele.
-        productAdapter.submitList(buildRows(snapshot));
+        // Yeni sorgu baslatildiysa satir durumu degismistir (ör. oturum yok -> hata); tazele.
+        if (ensureLookups(barcodes)) {
+            rows = buildRows(snapshot);
+        }
+        productAdapter.submitList(rows);
         tvEpcEmptyHint.setVisibility(snapshot.isEmpty() ? View.VISIBLE : View.GONE);
         tvTotalProductCount.setText(getString(R.string.warehouse_transfer_total_products,
                 snapshot.size(), rows.size()));

@@ -11,7 +11,9 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /** Depo transferi taslaklarini cihazda tutar. */
 public final class WarehouseTransferStore {
@@ -167,6 +169,28 @@ public final class WarehouseTransferStore {
             }
         }
         return null;
+    }
+
+    /**
+     * {@link #findOtherTransferContainingEpc}'in toplu hali: diger tum transferlerin EPC'leri
+     * -> iceren transfer. Okutma ekrani acilirken bir kez kurulur; her okumada kaydi bastan
+     * parse etmek yerine sabit surede bakilir. Ayni EPC birden fazla transferdeyse
+     * findOtherTransferContainingEpc ile ayni sirada ilk bulunan transfer doner.
+     */
+    public static Map<String, WarehouseTransfer> buildOtherTransfersEpcIndex(
+            Context context, String excludeGuid) {
+        Map<String, WarehouseTransfer> index = new HashMap<>();
+        for (WarehouseTransfer transfer : loadAll(context)) {
+            if (!TextUtils.isEmpty(excludeGuid) && excludeGuid.equals(transfer.transferGuid)) {
+                continue;
+            }
+            for (String epc : transfer.epcs) {
+                if (!TextUtils.isEmpty(epc) && !index.containsKey(epc)) {
+                    index.put(epc, transfer);
+                }
+            }
+        }
+        return index;
     }
 
     private static void saveAll(Context context, List<WarehouseTransfer> transfers) {
