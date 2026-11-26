@@ -24,17 +24,15 @@ public class WarehouseTransferProductAdapter
         extends RecyclerView.Adapter<WarehouseTransferProductAdapter.ViewHolder> {
 
     public enum LookupState {
-        /** 868 ile baslamayan etiket: barkod cikarilamaz, sorgulanmaz. */
-        UNDEFINED_TAG,
         LOADING,
         LOADED,
-        ERROR
+        ERROR,
+        /** Stok Hatalari listesi: urun listeden cikarildi, sebep errorMessage'da. */
+        REMOVED
     }
 
     /** Bir barkodun ekrandaki satiri. */
     public static final class Row {
-        /** UNDEFINED_TAG icin null. */
-        @Nullable
         public final String barcode;
         public final int qty;
         public final LookupState state;
@@ -43,7 +41,7 @@ public class WarehouseTransferProductAdapter
         @Nullable
         public final String errorMessage;
 
-        public Row(@Nullable String barcode, int qty, LookupState state,
+        public Row(String barcode, int qty, LookupState state,
                    @Nullable WarehouseProductInfo product, @Nullable String errorMessage) {
             this.barcode = barcode;
             this.qty = qty;
@@ -145,13 +143,6 @@ public class WarehouseTransferProductAdapter
             int errorColor = ContextCompat.getColor(context, R.color.login_error);
             int okColor = ContextCompat.getColor(context, R.color.login_primary);
 
-            if (row.state == LookupState.UNDEFINED_TAG) {
-                tvName.setText(R.string.warehouse_transfer_row_undefined_tag);
-                tvMeta.setText(R.string.warehouse_transfer_row_undefined_tag_hint);
-                tvStock.setVisibility(View.GONE);
-                return;
-            }
-
             WarehouseProductInfo product = row.product;
             tvName.setText(product != null && product.found ? product.displayName() : row.barcode);
             tvMeta.setText(buildMeta(context, row.barcode, product));
@@ -161,6 +152,10 @@ public class WarehouseTransferProductAdapter
                 case LOADING:
                     tvStock.setText(R.string.warehouse_transfer_row_stock_loading);
                     tvStock.setTextColor(subtitleColor);
+                    break;
+                case REMOVED:
+                    tvStock.setText(row.errorMessage != null ? row.errorMessage : "");
+                    tvStock.setTextColor(errorColor);
                     break;
                 case ERROR:
                     tvStock.setText(context.getString(R.string.warehouse_transfer_row_stock_error,

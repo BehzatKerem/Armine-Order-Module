@@ -35,8 +35,15 @@
     <string name="warehouse_transfer_row_stock_loading">Stok bilgisi alınıyor…</string>
     <string name="warehouse_transfer_row_stock_error">Stok bilgisi alınamadı: %1$s\nTekrar denemek için dokunun.</string>
     <string name="warehouse_transfer_row_not_found">Ürün bulunamadı</string>
-    <string name="warehouse_transfer_row_undefined_tag">Tanımsız etiket</string>
-    <string name="warehouse_transfer_row_undefined_tag_hint">Kodlanmamış etiket, ürün barkodu yok.</string>
+    <string name="warehouse_transfer_undefined_tag_rejected">Tanımsız etiket okundu, listeye eklenmedi.</string>
+    <string name="warehouse_transfer_undefined_removed_on_load">%1$d tanımsız etiket listeden çıkarıldı.</string>
+    <string name="warehouse_transfer_stock_errors">Stok Hataları</string>
+    <string name="warehouse_transfer_stock_errors_count">Stok Hataları (%1$d)</string>
+    <string name="warehouse_transfer_stock_errors_message">Bu ürünler hatalı olduğu için transfer listesinden çıkarıldı ve gönderilmeyecek.</string>
+    <string name="warehouse_transfer_stock_errors_empty">Stok hatası veren ürün yok.</string>
+    <string name="warehouse_transfer_stock_errors_close">Kapat</string>
+    <string name="warehouse_transfer_stock_error_reason_out_of_stock">Hatalı: Depoda stok yok (%1$s adet çıkarıldı)</string>
+    <string name="warehouse_transfer_stock_error_reason_not_found">Hatalı: Ürün bulunamadı (%1$s adet çıkarıldı)</string>
     <string name="warehouse_transfer_out_of_stock_title">Ürün listeden çıkarıldı</string>
     <string name="warehouse_transfer_not_found_message">%1$s barkodlu ürün bulunamadı, listeden çıkarıldı.</string>
     <string name="warehouse_transfer_not_found_rejected">%1$s barkodlu ürün bulunamadı, listeye eklenmedi.</string>

@@ -1,6 +1,7 @@
 package com.example.armineordermodule;
 
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.os.Bundle;
 import android.text.TextUtils;
 import android.view.KeyEvent;
@@ -12,11 +13,13 @@ import android.widget.Toast;
 import androidx.activity.OnBackPressedCallback;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.armineordermodule.rfid.RfidConnectionManager;
 import com.example.armineordermodule.rfid.RfidTriggerController;
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 
 import org.json.JSONException;
@@ -103,8 +106,14 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
      */
     private final Map<String, String> rejectedBarcodes = new HashMap<>();
     private long lastOutOfStockWarningAtMs;
+    private long lastUndefinedTagWarningAtMs;
+    /** Kayitli transfer acilirken ayiklanan tanimsiz etiket sayisi. */
+    private int removedUndefinedOnLoad;
     private AlertDialog outOfStockDialog;
     private final List<String> outOfStockDialogNames = new ArrayList<>();
+    /** Bu ekranda listeden cikarilan urunler (en yenisi ustte). Sadece ana thread. */
+    private final List<WarehouseTransferProductAdapter.Row> stockErrors = new ArrayList<>();
+    private MaterialButton btnStockErrors;
 
     private static final class ProductLookup {
         WarehouseTransferProductAdapter.LookupState state;
@@ -137,6 +146,8 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         FloatingActionButton fabSave = findViewById(R.id.fabSave);
         FloatingActionButton fabSaveAndSend = findViewById(R.id.fabSaveAndSend);
         FloatingActionButton fabCancelBarcode = findViewById(R.id.fabCancelBarcode);
+        btnStockErrors = findViewById(R.id.btnStockErrors);
+        btnStockErrors.setOnClickListener(v -> showStockErrorsDialog());
 
         productAdapter = new WarehouseTransferProductAdapter();
         rvEpcs.setLayoutManager(new LinearLayoutManager(this));
@@ -192,6 +203,13 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
 
         renderEpcs();
         updateRfidUi();
+        if (removedUndefinedOnLoad > 0) {
+            String message = getString(R.string.warehouse_transfer_undefined_removed_on_load,
+                    removedUndefinedOnLoad);
+            showError(message);
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            removedUndefinedOnLoad = 0;
+        }
     }
 
     @Override
@@ -253,7 +271,15 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             epcs.clear();
             acceptedEpcs.clear();
             for (String epc : transfer.epcs) {
-                if (!TextUtils.isEmpty(epc) && acceptedEpcs.add(epc)) {
+                if (TextUtils.isEmpty(epc)) {
+                    continue;
+                }
+                // Eski surumde kabul edilmis tanimsiz etiketler kayittan ayiklanir.
+                if (!isDefinedTag(epc)) {
+                    removedUndefinedOnLoad++;
+                    continue;
+                }
+                if (acceptedEpcs.add(epc)) {
                     epcs.add(epc);
                 }
             }
@@ -391,6 +417,11 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             return false;
         }
 
+        if (!isDefinedTag(normalized)) {
+            warnUndefinedTag();
+            return false;
+        }
+
         String barcode = EpcBarcodeGrouping.extractBarcode(normalized);
         String rejectMessage;
         synchronized (scanLock) {
@@ -451,6 +482,38 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             showError(message);
             Toast.makeText(this, message, Toast.LENGTH_LONG).show();
         });
+    }
+
+    /**
+     * Gecerli urun etiketi: 24 hane, tamami rakam, 868 ile baslar (barkod + seri no).
+     * E280... gibi kodlanmamis fabrika etiketleri ve diger her sey tanimsizdir, listeye girmez.
+     */
+    private static boolean isDefinedTag(String epc) {
+        if (epc == null || epc.length() != EpcBarcodeGrouping.EPC_LENGTH) {
+            return false;
+        }
+        for (int i = 0; i < epc.length(); i++) {
+            char c = epc.charAt(i);
+            if (c < '0' || c > '9') {
+                return false;
+            }
+        }
+        return EpcBarcodeGrouping.extractBarcode(epc) != null;
+    }
+
+    /**
+     * Okuyucu thread'inden: tanimsiz etiket okundu, eklenmedi. Depoda etrafta kodlanmamis
+     * etiket cok olabilir; bu yuzden sessizdir ve sadece ekrandaki hata satiri seyrek guncellenir.
+     */
+    private void warnUndefinedTag() {
+        long now = System.currentTimeMillis();
+        synchronized (scanLock) {
+            if (now - lastUndefinedTagWarningAtMs < DUPLICATE_WARNING_THROTTLE_MS) {
+                return;
+            }
+            lastUndefinedTagWarningAtMs = now;
+        }
+        runOnUiThread(() -> showError(getString(R.string.warehouse_transfer_undefined_tag_rejected)));
     }
 
     /** Okuyucu thread'inden: daha once bulunamayan/stoksuz cikan barkod tekrar okundu. Seyreltilir. */
@@ -595,7 +658,62 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         if (cancelListChanged) {
             renderCancelList();
         }
+        String qty = String.valueOf(removed);
+        String reason = product.found
+                ? getString(R.string.warehouse_transfer_stock_error_reason_out_of_stock, qty)
+                : getString(R.string.warehouse_transfer_stock_error_reason_not_found, qty);
+        stockErrors.add(0, new WarehouseTransferProductAdapter.Row(barcode, removed,
+                WarehouseTransferProductAdapter.LookupState.REMOVED, product, reason));
+        updateStockErrorsButton();
         showRemovedProductAlert(removedMessage);
+    }
+
+    /** Sayac: hata varsa buton kirmizi ve adetli, yoksa gri. */
+    private void updateStockErrorsButton() {
+        int count = stockErrors.size();
+        int color = ContextCompat.getColor(this, count > 0 ? R.color.login_error : R.color.login_subtitle);
+        btnStockErrors.setText(count > 0
+                ? getString(R.string.warehouse_transfer_stock_errors_count, count)
+                : getString(R.string.warehouse_transfer_stock_errors));
+        btnStockErrors.setTextColor(color);
+        btnStockErrors.setStrokeColor(ColorStateList.valueOf(color));
+    }
+
+    /** Sol alttaki "Stok Hatalari": listeden cikarilan urunler ve sebepleri. */
+    private void showStockErrorsDialog() {
+        if (fabExpanded) {
+            setFabMenuExpanded(false);
+        }
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_warehouse_transfer_stock_errors, null);
+        RecyclerView rvStockErrors = dialogView.findViewById(R.id.rvStockErrors);
+        TextView tvEmpty = dialogView.findViewById(R.id.tvStockErrorsEmpty);
+        TextView tvMessage = dialogView.findViewById(R.id.tvStockErrorsMessage);
+        boolean empty = stockErrors.isEmpty();
+        tvEmpty.setVisibility(empty ? View.VISIBLE : View.GONE);
+        tvMessage.setVisibility(empty ? View.GONE : View.VISIBLE);
+        rvStockErrors.setVisibility(empty ? View.GONE : View.VISIBLE);
+
+        WarehouseTransferProductAdapter adapter = new WarehouseTransferProductAdapter();
+        rvStockErrors.setLayoutManager(new LinearLayoutManager(this));
+        rvStockErrors.setAdapter(adapter);
+        adapter.submitList(new ArrayList<>(stockErrors));
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.warehouse_transfer_stock_errors)
+                .setView(dialogView)
+                .setPositiveButton(R.string.warehouse_transfer_stock_errors_close, null)
+                .create();
+        // Diyalog acikken tus olaylari diyaloga gelir; BLD'de tetik birakilinca okuma dursun.
+        dialog.setOnKeyListener((d, keyCode, event) -> {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                return rfidTrigger.onKeyDown(keyCode, event);
+            }
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                return rfidTrigger.onKeyUp(keyCode, event);
+            }
+            return false;
+        });
+        dialog.show();
     }
 
     /** Ayni anda birden fazla urun cikarilirsa tek diyalogda alt alta listelenir. */
@@ -635,11 +753,10 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     /** EPC listesini barkoda gore satirlara cevirir (sira: en son okunan urun ustte). */
     private List<WarehouseTransferProductAdapter.Row> buildRows(List<String> epcList) {
         Map<String, Integer> counts = new LinkedHashMap<>();
-        int undefinedCount = 0;
         for (String epc : epcList) {
+            // Listeye sadece isDefinedTag'den gecen etiketler girer; barkod her zaman vardir.
             String barcode = EpcBarcodeGrouping.extractBarcode(epc);
             if (barcode == null) {
-                undefinedCount++;
                 continue;
             }
             Integer current = counts.get(barcode);
@@ -654,10 +771,6 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             rows.add(new WarehouseTransferProductAdapter.Row(entry.getKey(), entry.getValue(), state,
                     lookup != null ? lookup.product : null,
                     lookup != null ? lookup.errorMessage : null));
-        }
-        if (undefinedCount > 0) {
-            rows.add(new WarehouseTransferProductAdapter.Row(null, undefinedCount,
-                    WarehouseTransferProductAdapter.LookupState.UNDEFINED_TAG, null, null));
         }
         return rows;
     }
