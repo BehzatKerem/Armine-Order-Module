@@ -23,14 +23,24 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 
 /**
- * Depo transferi urun okutma: tetik ile gelen EPC'ler oldugu gibi listelenir.
+ * Depo transferi urun okutma.
+ *
+ * Transfer EPC olarak tutulur ve gonderilir; ekranda ise EPC'ler barkoda (ilk 13 hane)
+ * gore gruplanip urun adi + adet olarak gosterilir. Her yeni barkod icin kaynak depodaki
+ * urun/stok bilgisi bir kez sorgulanir (GetProductByBarcode). Urun tanimli ama stogu yoksa
+ * o barkodun tum EPC'leri listeden cikarilir, guclu uyari sesi calar ve uyari diyalogu acilir;
+ * ayni barkodun sonraki okumalari da eklenmez.
  */
 public class WarehouseTransferScanActivity extends AppCompatActivity {
 
@@ -48,7 +58,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     private long lastDuplicateWarningAtMs;
     private RfidTriggerController rfidTrigger;
 
-    private RfidHandheldCountingEpcAdapter epcAdapter;
+    private WarehouseTransferProductAdapter productAdapter;
     private RecyclerView rvEpcs;
     private TextView tvScanError;
     private TextView tvEpcEmptyHint;
@@ -59,7 +69,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     private View rowSaveAndSend;
     private View rowCancelBarcode;
     private AlertDialog cancelScanDialog;
-    private RfidHandheldCountingEpcAdapter cancelEpcAdapter;
+    private WarehouseTransferProductAdapter cancelProductAdapter;
     private TextView tvCancelEpcStatus;
     private TextView tvCancelEpcEmpty;
 
@@ -85,6 +95,27 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     private boolean cancelScanMode = false;
     private boolean fabExpanded = false;
 
+    /** Barkod -> urun/stok sorgu durumu. Sadece ana thread'de okunur/yazilir. */
+    private final Map<String, ProductLookup> lookups = new HashMap<>();
+    /**
+     * Bulunamadigi ya da stokta olmadigi icin cikarilan barkod -> tekrar okutulunca gosterilecek
+     * mesaj. scanLock ile korunur (okuyucu thread'i okur).
+     */
+    private final Map<String, String> rejectedBarcodes = new HashMap<>();
+    private long lastOutOfStockWarningAtMs;
+    private AlertDialog outOfStockDialog;
+    private final List<String> outOfStockDialogNames = new ArrayList<>();
+
+    private static final class ProductLookup {
+        WarehouseTransferProductAdapter.LookupState state;
+        WarehouseProductInfo product;
+        String errorMessage;
+
+        ProductLookup(WarehouseTransferProductAdapter.LookupState state) {
+            this.state = state;
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -107,11 +138,24 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         FloatingActionButton fabSaveAndSend = findViewById(R.id.fabSaveAndSend);
         FloatingActionButton fabCancelBarcode = findViewById(R.id.fabCancelBarcode);
 
-        epcAdapter = new RfidHandheldCountingEpcAdapter();
+        productAdapter = new WarehouseTransferProductAdapter();
         rvEpcs.setLayoutManager(new LinearLayoutManager(this));
-        rvEpcs.setAdapter(epcAdapter);
-        // Satirdaki cop kutusu, FAB menusundeki "Iptal Barkod" ile ayni modali acar.
-        epcAdapter.setOnLineDeleteClickListener(epc -> openCancelBarcodeFromLine());
+        rvEpcs.setAdapter(productAdapter);
+        productAdapter.setListener(new WarehouseTransferProductAdapter.Listener() {
+            @Override
+            public void onDeleteClick(WarehouseTransferProductAdapter.Row row) {
+                // Satirdaki cop kutusu, FAB menusundeki "Iptal Barkod" ile ayni modali acar.
+                openCancelBarcodeFromLine();
+            }
+
+            @Override
+            public void onRetryClick(WarehouseTransferProductAdapter.Row row) {
+                if (row.barcode != null) {
+                    requestLookup(row.barcode);
+                    renderEpcs();
+                }
+            }
+        });
 
         if (!bindSession(savedInstanceState)) {
             Toast.makeText(this, R.string.warehouse_transfer_not_found, Toast.LENGTH_LONG).show();
@@ -240,6 +284,9 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         updateRfidUi();
+        if (retryFailedLookups()) {
+            renderEpcs();
+        }
         if (RfidPreferences.isRfidEnabled(this) && !RfidConnectionManager.isConnected()) {
             RfidConnectionManager.autoReconnectIfNeededAsync(result -> {
                 updateRfidUi();
@@ -250,6 +297,9 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         dismissCancelScanDialog(false);
+        if (outOfStockDialog != null && outOfStockDialog.isShowing()) {
+            outOfStockDialog.dismiss();
+        }
         if (sendingDialog != null) {
             sendingDialog.dismiss();
         }
@@ -341,10 +391,17 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             return false;
         }
 
+        String barcode = EpcBarcodeGrouping.extractBarcode(normalized);
+        String rejectMessage;
         synchronized (scanLock) {
             if (acceptedEpcs.contains(normalized)) {
                 return false;
             }
+            rejectMessage = barcode != null ? rejectedBarcodes.get(barcode) : null;
+        }
+        if (rejectMessage != null) {
+            warnRejectedBarcode(rejectMessage);
+            return false;
         }
 
         WarehouseTransfer otherTransfer = WarehouseTransferStore.findOtherTransferContainingEpc(
@@ -394,6 +451,243 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
             showError(message);
             Toast.makeText(this, message, Toast.LENGTH_LONG).show();
         });
+    }
+
+    /** Okuyucu thread'inden: daha once bulunamayan/stoksuz cikan barkod tekrar okundu. Seyreltilir. */
+    private void warnRejectedBarcode(String message) {
+        long now = System.currentTimeMillis();
+        synchronized (scanLock) {
+            if (now - lastOutOfStockWarningAtMs < DUPLICATE_WARNING_THROTTLE_MS) {
+                return;
+            }
+            lastOutOfStockWarningAtMs = now;
+        }
+        RfidConnectionManager.playOutOfStockWarning();
+        runOnUiThread(() -> {
+            showError(message);
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        });
+    }
+
+    // --- Urun / stok sorgusu (ana thread) ---
+
+    /** Listede olup sorgusu hic baslatilmamis barkodlar icin sorgu acar. */
+    private void ensureLookups(Set<String> barcodes) {
+        for (String barcode : barcodes) {
+            if (!lookups.containsKey(barcode)) {
+                requestLookup(barcode);
+            }
+        }
+    }
+
+    /** Hata almis sorgulari tekrar baslatir. Tekrar baslatilan varsa true. */
+    private boolean retryFailedLookups() {
+        List<String> failed = new ArrayList<>();
+        for (Map.Entry<String, ProductLookup> entry : lookups.entrySet()) {
+            if (entry.getValue().state == WarehouseTransferProductAdapter.LookupState.ERROR) {
+                failed.add(entry.getKey());
+            }
+        }
+        for (String barcode : failed) {
+            requestLookup(barcode);
+        }
+        return !failed.isEmpty();
+    }
+
+    private void requestLookup(String barcode) {
+        ProductLookup existing = lookups.get(barcode);
+        if (existing != null && existing.state != WarehouseTransferProductAdapter.LookupState.ERROR) {
+            return;
+        }
+        ProductLookup lookup = new ProductLookup(WarehouseTransferProductAdapter.LookupState.LOADING);
+        lookups.put(barcode, lookup);
+
+        String serverUrl = ServerPreferences.getServerUrl(this);
+        String token = AuthPreferences.getToken(this);
+        String databaseName = AuthPreferences.getDefaultDatabase(this);
+        if (TextUtils.isEmpty(serverUrl)) {
+            failLookup(lookup, getString(R.string.server_url_missing));
+            return;
+        }
+        if (TextUtils.isEmpty(token) || !AuthPreferences.hasValidSession(this)) {
+            failLookup(lookup, getString(R.string.warehouses_session_required));
+            return;
+        }
+        if (TextUtils.isEmpty(databaseName)) {
+            failLookup(lookup, getString(R.string.warehouses_database_missing));
+            return;
+        }
+
+        // Stok, urunun ciktigi kaynak depoda kontrol edilir.
+        WarehouseProductApiClient.getProductByBarcode(serverUrl, token, databaseName, barcode,
+                sourceOffice, sourceWarehouse, new WarehouseProductApiClient.Callback() {
+                    @Override
+                    public void onSuccess(WarehouseProductInfo product) {
+                        if (isDestroyed() || lookups.get(barcode) != lookup) {
+                            return;
+                        }
+                        lookup.state = WarehouseTransferProductAdapter.LookupState.LOADED;
+                        lookup.product = product;
+                        lookup.errorMessage = null;
+                        if (product.shouldRemoveFromTransfer()) {
+                            removeRejectedProduct(barcode, product);
+                        }
+                        renderEpcs();
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        if (isDestroyed() || lookups.get(barcode) != lookup) {
+                            return;
+                        }
+                        failLookup(lookup, message);
+                        renderEpcs();
+                    }
+                });
+    }
+
+    private static void failLookup(ProductLookup lookup, String message) {
+        lookup.state = WarehouseTransferProductAdapter.LookupState.ERROR;
+        lookup.product = null;
+        lookup.errorMessage = message;
+    }
+
+    /**
+     * Bulunamayan ya da stoksuz urunun tum EPC'lerini listeden (ve Iptal Barkod modalindan)
+     * cikarir, sonraki okumalarda eklenmemesi icin barkodu isaretler ve depocuyu uyarir.
+     * Bulunamayan urunun adi yoktur; mesajda barkodu yazilir.
+     */
+    private void removeRejectedProduct(String barcode, WarehouseProductInfo product) {
+        String removedMessage;
+        String rejectMessage;
+        if (!product.found) {
+            removedMessage = getString(R.string.warehouse_transfer_not_found_message, barcode);
+            rejectMessage = getString(R.string.warehouse_transfer_not_found_rejected, barcode);
+        } else {
+            String name = product.displayName();
+            removedMessage = getString(R.string.warehouse_transfer_out_of_stock_message, name);
+            rejectMessage = getString(R.string.warehouse_transfer_out_of_stock_rejected, name);
+        }
+        int removed = 0;
+        synchronized (scanLock) {
+            rejectedBarcodes.put(barcode, rejectMessage);
+            Iterator<String> it = epcs.iterator();
+            while (it.hasNext()) {
+                String epc = it.next();
+                if (barcode.equals(EpcBarcodeGrouping.extractBarcode(epc))) {
+                    it.remove();
+                    acceptedEpcs.remove(epc);
+                    removed++;
+                }
+            }
+        }
+        if (removed <= 0) {
+            return;
+        }
+        boolean cancelListChanged = false;
+        Iterator<String> pending = pendingCancelEpcs.iterator();
+        while (pending.hasNext()) {
+            if (barcode.equals(EpcBarcodeGrouping.extractBarcode(pending.next()))) {
+                pending.remove();
+                cancelListChanged = true;
+            }
+        }
+        if (cancelListChanged) {
+            renderCancelList();
+        }
+        showRemovedProductAlert(removedMessage);
+    }
+
+    /** Ayni anda birden fazla urun cikarilirsa tek diyalogda alt alta listelenir. */
+    private void showRemovedProductAlert(String line) {
+        RfidConnectionManager.playOutOfStockWarning();
+        showError(line);
+        outOfStockDialogNames.add(line);
+        String message = TextUtils.join("\n\n", outOfStockDialogNames);
+
+        if (outOfStockDialog != null && outOfStockDialog.isShowing()) {
+            outOfStockDialog.setMessage(message);
+            return;
+        }
+        outOfStockDialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.warehouse_transfer_out_of_stock_title)
+                .setIcon(android.R.drawable.ic_dialog_alert)
+                .setMessage(message)
+                .setPositiveButton(R.string.warehouse_transfer_out_of_stock_ok, null)
+                .setOnDismissListener(dialog -> {
+                    outOfStockDialogNames.clear();
+                    outOfStockDialog = null;
+                })
+                .create();
+        // Diyalog acikken tus olaylari diyaloga gelir; BLD'de tetik birakilinca okuma dursun.
+        outOfStockDialog.setOnKeyListener((dialog, keyCode, event) -> {
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                return rfidTrigger.onKeyDown(keyCode, event);
+            }
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                return rfidTrigger.onKeyUp(keyCode, event);
+            }
+            return false;
+        });
+        outOfStockDialog.show();
+    }
+
+    /** EPC listesini barkoda gore satirlara cevirir (sira: en son okunan urun ustte). */
+    private List<WarehouseTransferProductAdapter.Row> buildRows(List<String> epcList) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        int undefinedCount = 0;
+        for (String epc : epcList) {
+            String barcode = EpcBarcodeGrouping.extractBarcode(epc);
+            if (barcode == null) {
+                undefinedCount++;
+                continue;
+            }
+            Integer current = counts.get(barcode);
+            counts.put(barcode, current == null ? 1 : current + 1);
+        }
+        List<WarehouseTransferProductAdapter.Row> rows = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+            ProductLookup lookup = lookups.get(entry.getKey());
+            WarehouseTransferProductAdapter.LookupState state = lookup != null
+                    ? lookup.state
+                    : WarehouseTransferProductAdapter.LookupState.LOADING;
+            rows.add(new WarehouseTransferProductAdapter.Row(entry.getKey(), entry.getValue(), state,
+                    lookup != null ? lookup.product : null,
+                    lookup != null ? lookup.errorMessage : null));
+        }
+        if (undefinedCount > 0) {
+            rows.add(new WarehouseTransferProductAdapter.Row(null, undefinedCount,
+                    WarehouseTransferProductAdapter.LookupState.UNDEFINED_TAG, null, null));
+        }
+        return rows;
+    }
+
+    /**
+     * Gonderimden once tum barkodlarin stok kontrolu bitmis olmali; yoksa stoksuz urun
+     * gonderilebilir. Bitmemisse hata almis sorgular tekrar baslatilir.
+     */
+    private boolean isStockCheckComplete() {
+        Set<String> barcodes = new LinkedHashSet<>();
+        synchronized (scanLock) {
+            for (String epc : epcs) {
+                String barcode = EpcBarcodeGrouping.extractBarcode(epc);
+                if (barcode != null) {
+                    barcodes.add(barcode);
+                }
+            }
+        }
+        boolean complete = true;
+        for (String barcode : barcodes) {
+            ProductLookup lookup = lookups.get(barcode);
+            if (lookup == null || lookup.state != WarehouseTransferProductAdapter.LookupState.LOADED) {
+                complete = false;
+                requestLookup(barcode);
+            }
+        }
+        if (!complete) {
+            renderEpcs();
+        }
+        return complete;
     }
 
     private void stopScanning() {
@@ -468,9 +762,9 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         tvCancelEpcEmpty = dialogView.findViewById(R.id.tvCancelEpcEmpty);
         RecyclerView rvCancelEpcs = dialogView.findViewById(R.id.rvCancelEpcs);
 
-        cancelEpcAdapter = new RfidHandheldCountingEpcAdapter();
+        cancelProductAdapter = new WarehouseTransferProductAdapter();
         rvCancelEpcs.setLayoutManager(new LinearLayoutManager(this));
-        rvCancelEpcs.setAdapter(cancelEpcAdapter);
+        rvCancelEpcs.setAdapter(cancelProductAdapter);
         renderCancelList();
 
         cancelScanDialog = new AlertDialog.Builder(this)
@@ -527,7 +821,8 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         pendingCancelEpcs.clear();
         renderEpcs();
         Toast.makeText(this,
-                getString(R.string.warehouse_transfer_delete_success) + " (" + removedCount + ")",
+                getString(R.string.warehouse_transfer_delete_success) + " ("
+                        + getString(R.string.warehouse_transfer_row_qty, removedCount) + ")",
                 Toast.LENGTH_SHORT).show();
 
         if (isScanning) {
@@ -541,10 +836,10 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
     }
 
     private void renderCancelList() {
-        if (cancelEpcAdapter == null) {
+        if (cancelProductAdapter == null) {
             return;
         }
-        cancelEpcAdapter.submitList(new ArrayList<>(pendingCancelEpcs));
+        cancelProductAdapter.submitList(buildRows(new ArrayList<>(pendingCancelEpcs)));
         if (tvCancelEpcEmpty != null) {
             tvCancelEpcEmpty.setVisibility(pendingCancelEpcs.isEmpty() ? View.VISIBLE : View.GONE);
         }
@@ -555,7 +850,7 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         pendingCancelEpcs.clear();
         tvCancelEpcStatus = null;
         tvCancelEpcEmpty = null;
-        cancelEpcAdapter = null;
+        cancelProductAdapter = null;
         if (cancelScanDialog != null) {
             if (cancelScanDialog.isShowing()) {
                 cancelScanDialog.dismiss();
@@ -592,9 +887,19 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         synchronized (scanLock) {
             snapshot = new ArrayList<>(epcs);
         }
-        epcAdapter.submitList(snapshot);
+        List<WarehouseTransferProductAdapter.Row> rows = buildRows(snapshot);
+        Set<String> barcodes = new LinkedHashSet<>();
+        for (WarehouseTransferProductAdapter.Row row : rows) {
+            if (row.barcode != null) {
+                barcodes.add(row.barcode);
+            }
+        }
+        ensureLookups(barcodes);
+        // ensureLookups durum degistirmis olabilir (ör. oturum yok -> hata); satirlari tazele.
+        productAdapter.submitList(buildRows(snapshot));
         tvEpcEmptyHint.setVisibility(snapshot.isEmpty() ? View.VISIBLE : View.GONE);
-        tvTotalProductCount.setText(getString(R.string.warehouse_transfer_total_products, snapshot.size()));
+        tvTotalProductCount.setText(getString(R.string.warehouse_transfer_total_products,
+                snapshot.size(), rows.size()));
     }
 
     private void saveDraft() {
@@ -617,6 +922,11 @@ public class WarehouseTransferScanActivity extends AppCompatActivity {
         setFabMenuExpanded(false);
         if (nebimSent) {
             showError(getString(R.string.warehouse_transfer_sent_locked));
+            return;
+        }
+        if (hasProducts() && !isStockCheckComplete()) {
+            showError(getString(R.string.warehouse_transfer_stock_check_pending));
+            Toast.makeText(this, R.string.warehouse_transfer_stock_check_pending, Toast.LENGTH_LONG).show();
             return;
         }
         // Once cihaza kaydedilir: gonderim basarisiz olsa da okutmalar kaybolmaz.

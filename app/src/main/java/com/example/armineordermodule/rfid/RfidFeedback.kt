@@ -5,6 +5,10 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.SoundPool
 import android.media.ToneGenerator
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Log
 import com.example.armineordermodule.R
 import java.util.concurrent.Executors
@@ -23,6 +27,11 @@ internal object RfidFeedback {
     private const val TAG = "RfidFeedback"
     private const val WARNING_TONE_MS = 250
     private const val FALLBACK_BEEP_MS = 80
+    private const val STRONG_WARNING_TONE_MS = 400
+    private const val STRONG_WARNING_GAP_MS = 120L
+    private const val STRONG_WARNING_REPEAT = 3
+    /** Bekle, titre, bekle, titre... (ms). Uc tonla ayni ritimde. */
+    private val STRONG_WARNING_VIBRATION = longArrayOf(0, 400, 120, 400, 120, 400)
 
     private val executor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "rfid-sound").apply { isDaemon = true }
@@ -137,6 +146,53 @@ internal object RfidFeedback {
                 warningInFlight.set(false)
             }
         }
+    }
+
+    /**
+     * Stokta olmayan urun listeden cikarildiginda: alarm kanalinda uc uzun ton ve titresim.
+     * [playWarning]'den belirgin sekilde daha uzun ve serttir; depocu ekrana bakmasa da fark eder.
+     * Ust uste kuyruklanmaz.
+     */
+    fun playStrongWarning() {
+        if (!warningInFlight.compareAndSet(false, true)) {
+            return
+        }
+        vibrate(STRONG_WARNING_VIBRATION)
+        executor.execute {
+            try {
+                repeat(STRONG_WARNING_REPEAT) { index ->
+                    playTone(AudioManager.STREAM_ALARM, ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, STRONG_WARNING_TONE_MS)
+                    if (index < STRONG_WARNING_REPEAT - 1) {
+                        Thread.sleep(STRONG_WARNING_GAP_MS)
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Guclu uyari sesi calinamadi", t)
+            } finally {
+                warningInFlight.set(false)
+            }
+        }
+    }
+
+    private fun vibrate(pattern: LongArray) {
+        val context = appContext ?: return
+        runCatching {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                context.getSystemService(VibratorManager::class.java)?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            if (vibrator == null || !vibrator.hasVibrator()) {
+                return
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(pattern, -1)
+            }
+        }.onFailure { Log.w(TAG, "Titresim calistirilamadi", it) }
     }
 
     /** Executor thread'inde cagrilir; ton bitene kadar bekler. */

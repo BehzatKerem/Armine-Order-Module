@@ -198,6 +198,10 @@ object RfidConnectionManager {
     @JvmStatic
     fun playDuplicateWarning() = RfidFeedback.playWarning()
 
+    /** Stokta olmayan urun listeden cikarildiginda: uc uzun alarm tonu ve titresim. */
+    @JvmStatic
+    fun playOutOfStockWarning() = RfidFeedback.playStrongWarning()
+
     // --- Ic yardimcilar (executor thread'inde) ---
 
     private fun connectOnce(): ConnectResult {
